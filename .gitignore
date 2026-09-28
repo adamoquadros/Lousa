@@ -1,0 +1,13 @@
+node_modules/
+
+# Banco de dados e arquivos enviados: dados reais da turma, nunca vao para o git.
+# O -wal e o -shm guardam as alteracoes recentes do SQLite (e-mails, senhas
+# criptografadas, sessoes) - sao tao sensiveis quanto o proprio .db.
+data/*.db
+data/*.db-*
+data/uploads/
+
+# Chaves de API e senha do e-mail.
+.env
+
+*.log
