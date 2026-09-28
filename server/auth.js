@@ -33,10 +33,10 @@ export function parseCookies(req) {
  */
 const SHORT_SESSION_MS = 12 * 36e5;
 
-export function createSession(res, userId, { remember = true } = {}) {
+export async function createSession(res, userId, { remember = true } = {}) {
   const token = randomBytes(32).toString('hex');
   const ttl = remember ? SESSION_DAYS * 864e5 : SHORT_SESSION_MS;
-  run(
+  await run(
     'INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)',
     token,
     userId,
@@ -52,17 +52,21 @@ export function createSession(res, userId, { remember = true } = {}) {
   return token;
 }
 
-export function destroySession(req, res) {
+export async function destroySession(req, res) {
   const token = parseCookies(req)[COOKIE];
-  if (token) run('DELETE FROM sessions WHERE token = ?', token);
+  if (token) await run('DELETE FROM sessions WHERE token = ?', token);
   res.clearCookie(COOKIE, { path: '/' });
 }
 
-/** Popula req.user quando ha sessao valida. Nunca bloqueia. */
-export function attachUser(req, _res, next) {
+/**
+ * Popula req.user quando ha sessao valida. So consulta o banco para /api:
+ * arquivos estaticos (CSS, JS) nao precisam saber quem esta logado.
+ */
+export async function attachUser(req, _res, next) {
   const token = parseCookies(req)[COOKIE];
-  if (token) {
-    const row = get(
+  if (!token || !req.path.startsWith('/api/')) return next();
+  try {
+    const row = await get(
       `SELECT u.id, u.name, u.email, u.role, u.color, s.expires_at
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.token = ?`,
@@ -72,10 +76,12 @@ export function attachUser(req, _res, next) {
       req.user = { id: row.id, name: row.name, email: row.email, role: row.role, color: row.color };
       req.sessionToken = token;
     } else if (row) {
-      run('DELETE FROM sessions WHERE token = ?', token);
+      await run('DELETE FROM sessions WHERE token = ?', token);
     }
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 }
 
 export function requireAuth(req, res, next) {

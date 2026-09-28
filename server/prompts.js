@@ -63,25 +63,25 @@ export const isPreset = (name) => Object.hasOwn(PRESETS, name);
 const line = (label, value) => (value ? `${label}: ${value}\n` : '');
 
 /** Bloco de contexto da materia, sem a instrucao do preset. */
-export function buildContext(subjectId) {
-  const subject = get(
+export async function buildContext(subjectId) {
+  const subject = await get(
     'SELECT id, name, code, professor, room, notes FROM subjects WHERE id = ?',
     subjectId,
   );
   if (!subject) return null;
 
-  const classes = all(
+  const classes = await all(
     'SELECT weekday, starts_at, ends_at FROM classes WHERE subject_id = ? ORDER BY weekday, starts_at',
     subjectId,
   );
   // Prazos que ainda importam: o que esta em aberto daqui para a frente.
-  const tasks = all(`
+  const tasks = await all(`
     SELECT title, kind, status, due_date, description
       FROM tasks
      WHERE subject_id = ? AND status <> 'concluida'
      ORDER BY due_date IS NULL, due_date
      LIMIT 10`, subjectId);
-  const notes = all(
+  const notes = await all(
     'SELECT title FROM notes WHERE subject_id = ? ORDER BY updated_at DESC LIMIT 15',
     subjectId,
   );
@@ -122,9 +122,9 @@ export function buildContext(subjectId) {
  * Prompt completo pronto para enviar. `hasAttachments` muda a frase sobre o
  * material: sem anexo o modelo precisa saber que so tem o contexto acima.
  */
-export function buildPrompt(subjectId, preset, { hasAttachments = false } = {}) {
+export async function buildPrompt(subjectId, preset, { hasAttachments = false } = {}) {
   if (!isPreset(preset)) return null;
-  const built = buildContext(subjectId);
+  const built = await buildContext(subjectId);
   if (!built) return null;
 
   const material = hasAttachments

@@ -291,7 +291,8 @@ export function bindTaskRows(root, tasks, reload) {
 /* ======================================================= formulario de materia */
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-const MAX_IMAGE_MB = 8;
+// Mesmo limite do servidor (a hospedagem recusa envios acima de ~4,5MB).
+const MAX_IMAGE_MB = 4;
 
 const imageField = (slot, label, hint) => `
   <div class="field" data-image="${slot}">

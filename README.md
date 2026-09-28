@@ -12,6 +12,11 @@ npm install     # só na primeira vez
 npm start       # http://localhost:4000
 ```
 
+O banco de dados é um **Postgres no Neon** (na nuvem). Antes do primeiro `npm start`, copie o
+`.env.example` para `.env` e preencha `DATABASE_URL` com a conexão do painel do Neon
+(*Connect*, a URL com `-pooler` no host). As tabelas são criadas sozinhas na primeira execução.
+Sem `DATABASE_URL` o servidor não sobe e avisa o que falta.
+
 Durante o desenvolvimento, `npm run dev` reinicia o servidor a cada alteração.
 
 Na primeira abertura o app pede a criação da **conta de administrador** — essa primeira conta
@@ -27,7 +32,10 @@ tokens.json         os mesmos tokens em JSON
 theme.css           bloco @theme do Tailwind v4 (não usado: o app é CSS puro)
 server/
   index.js          servidor Express e arquivos estáticos
-  db.js             schema SQLite (node:sqlite, sem dependência nativa) e helpers
+  app.js            o app Express (usado pelo npm start e pela Vercel)
+  index.js          liga o app numa porta, para rodar no computador
+  db.js             conexão com o Postgres (pg), schema e helpers all/get/run/tx
+  storage.js        conteúdo dos anexos e imagens, guardado no banco (tabela blobs)
   auth.js           hash de senha (scrypt), sessões por cookie e regras de permissão
   routes/
     auth.js         primeira conta, login, logout, senha, lista da equipe
@@ -44,7 +52,10 @@ public/
   js/ui.js          datas, modais, toasts, escape de HTML
   js/modals.js      modal da matéria (abas) e formulários
   js/app.js         estado, views (Visão geral, Matérias, Tarefas, Agenda, Equipe)
-data/app.db         banco SQLite (fora do controle de versão)
+scripts/
+  migrate-sqlite-to-postgres.js  copia o banco antigo (data/app.db) para o Postgres
+api/index.js        função da Vercel: entrega as rotas /api ao app Express
+vercel.json         rotas da Vercel (/api e o CSS de tokens vão para a função)
 ```
 
 ## Perfis de acesso
@@ -74,8 +85,8 @@ livre para os dois perfis; o que apaga trabalho dos outros fica com o admin.
   **Informações**, **Tarefas**, **Resumos** e **Datas**; o botão **Editar** (no cartão, na linha
   ou no topo do modal) altera os dados da matéria.
 - **Imagens da matéria**: no formulário da matéria dá para escolher uma imagem para o cartão e
-  outra para o fundo atrás do modal aberto (PNG, JPG ou WEBP, até 8MB). Os arquivos ficam em
-  `data/uploads` e são apagados junto com a matéria.
+  outra para o fundo atrás do modal aberto (PNG, JPG ou WEBP, até 4MB). Os arquivos ficam no
+  banco e são apagados junto com a matéria.
 - **Tarefas**: lista de tudo do semestre, com busca e filtros por matéria, situação e responsável.
   Marcar como concluída é um clique na caixa à esquerda.
 - **Agenda**: grade da semana com as aulas de cada matéria e os próximos prazos.
@@ -157,13 +168,26 @@ As regras que sustentam isso:
 - A grade usa `grid-auto-rows: var(--card-h)`. Com `1fr`, um nome comprido
   esticava todos os cartões da página.
 
+## Publicar na Vercel
+
+O projeto já vem pronto para a Vercel (`vercel.json` + `api/index.js`): as páginas de `public/`
+são servidas direto e as rotas `/api` rodam como função. Basta conectar o repositório do GitHub
+e, em **Settings → Environment Variables**, definir `DATABASE_URL` (a integração do Neon já cria
+essa variável). Opcionais: `GEMINI_API_KEY`, `SMTP_*` e `APP_URL`. Cada `git push` na `main`
+publica uma versão nova.
+
 ## Notas técnicas
 
-- Sem dependências nativas: o banco usa o `node:sqlite` embutido no Node 22+ (aqui: Node 24).
-  A única dependência de produção é o Express.
+- Banco: Postgres (Neon) via `pg`. As rotas escrevem SQL com `?`, que `db.js` converte para
+  `$1, $2...`; todas as consultas são assíncronas. Datas (`DATE`) voltam como `'AAAA-MM-DD'` e
+  horários (`TIMESTAMPTZ`) como texto ISO. "Hoje" nos painéis usa o fuso de São Paulo.
 - Senhas com `scrypt` e sal por usuário; sessão em cookie `httpOnly` com validade de 30 dias.
 - Todo dado vindo do usuário passa por `esc()` antes de virar HTML.
-- O banco fica em `data/app.db`. Para zerar tudo, pare o servidor e apague esse arquivo.
+- Tudo fica no Neon, inclusive o conteúdo dos anexos e das imagens (tabela `blobs`): na Vercel o
+  disco é descartável. Limite de 4MB por arquivo, um arquivo por envio — a Vercel recusa
+  requisições acima de ~4,5MB.
+- Migração do SQLite antigo: `npm run migrate:sqlite` (só roda com o Postgres vazio; não altera
+  o `data/app.db`, que fica como cópia de segurança).
 - Para a turma acessar pela rede local, rode `set PORT=4000` e libere a porta no firewall;
   o servidor já escuta em todas as interfaces.
 

@@ -48,9 +48,9 @@ function settings(req) {
 async function deliver(req, inviteId) {
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + INVITE_DAYS * 864e5).toISOString();
-  run('UPDATE invites SET token_hash = ?, expires_at = ? WHERE id = ?', hashToken(token), expiresAt, inviteId);
+  await run('UPDATE invites SET token_hash = ?, expires_at = ? WHERE id = ?', hashToken(token), expiresAt, inviteId);
 
-  const invite = get(`${SELECT} WHERE i.id = ?`, inviteId);
+  const invite = await get(`${SELECT} WHERE i.id = ?`, inviteId);
   const link = `${baseUrl(req)}/?convite=${token}`;
   const result = { invite: shape(invite), link, emailed: false, email_error: null, ...settings(req) };
   if (!result.mail_enabled) return result;
@@ -73,36 +73,37 @@ async function deliver(req, inviteId) {
 
 /* ------------------------------------------------------------ admin */
 
-invitesRouter.get('/', requireAdmin, (req, res) => {
+invitesRouter.get('/', requireAdmin, async (req, res) => {
   res.json({
     ...settings(req),
-    invites: all(`${SELECT} WHERE i.accepted_at IS NULL ORDER BY i.created_at DESC`).map(shape),
+    invites: (await all(`${SELECT} WHERE i.accepted_at IS NULL ORDER BY i.created_at DESC`)).map(shape),
   });
 });
 
 invitesRouter.post('/', requireAdmin, async (req, res) => {
   const email = String(req.body?.email ?? '').trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Informe um e-mail válido.' });
-  if (get('SELECT id FROM users WHERE email = ?', email)) {
+  if (await get('SELECT id FROM users WHERE email = ?', email)) {
     return res.status(409).json({ error: 'Já existe uma conta com esse e-mail.' });
   }
   const role = req.body?.role || 'member';
   if (!['admin', 'member'].includes(role)) return res.status(400).json({ error: 'Perfil inválido.' });
   const rawPosition = req.body?.position_id;
   const positionId = rawPosition === null || rawPosition === undefined || rawPosition === '' ? null : Number(rawPosition);
-  if (positionId !== null && !get('SELECT id FROM positions WHERE id = ?', positionId)) {
+  if (positionId !== null && !await get('SELECT id FROM positions WHERE id = ?', positionId)) {
     return res.status(400).json({ error: 'Cargo inválido.' });
   }
 
   // Um convite pendente por e-mail: convidar de novo substitui o anterior
   // (e invalida o link antigo).
-  const id = tx(() => {
-    run('DELETE FROM invites WHERE email = ? AND accepted_at IS NULL', email);
-    return run(
+  const id = await tx(async () => {
+    await run('DELETE FROM invites WHERE email = ? AND accepted_at IS NULL', email);
+    const info = await run(
       `INSERT INTO invites (email, token_hash, role, position_id, invited_by, expires_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, now()) RETURNING id`,
       email, `pendente-${randomBytes(8).toString('hex')}`, role, positionId, req.user.id,
-    ).lastInsertRowid;
+    );
+    return info.lastInsertRowid;
   });
 
   res.status(201).json(await deliver(req, id));
@@ -110,30 +111,30 @@ invitesRouter.post('/', requireAdmin, async (req, res) => {
 
 /** Gera um link novo (o antigo deixa de valer) e reenvia. */
 invitesRouter.post('/:id/resend', requireAdmin, async (req, res) => {
-  const invite = get('SELECT * FROM invites WHERE id = ? AND accepted_at IS NULL', Number(req.params.id));
+  const invite = await get('SELECT * FROM invites WHERE id = ? AND accepted_at IS NULL', Number(req.params.id));
   if (!invite) return res.status(404).json({ error: 'Convite não encontrado.' });
   res.json(await deliver(req, invite.id));
 });
 
-invitesRouter.delete('/:id', requireAdmin, (req, res) => {
-  const r = run('DELETE FROM invites WHERE id = ? AND accepted_at IS NULL', Number(req.params.id));
+invitesRouter.delete('/:id', requireAdmin, async (req, res) => {
+  const r = await run('DELETE FROM invites WHERE id = ? AND accepted_at IS NULL', Number(req.params.id));
   if (!r.changes) return res.status(404).json({ error: 'Convite não encontrado.' });
   res.json({ ok: true });
 });
 
 /* ------------------------------------------------------------ publico (quem recebeu) */
 
-function findValid(token) {
+async function findValid(token) {
   if (typeof token !== 'string' || token.length < 20) return null;
-  const invite = get(`${SELECT} WHERE i.token_hash = ?`, hashToken(token));
+  const invite = await get(`${SELECT} WHERE i.token_hash = ?`, hashToken(token));
   if (!invite || invite.accepted_at || new Date(invite.expires_at) <= new Date()) return null;
   return invite;
 }
 
 const INVALID = 'Este convite não vale mais: já foi usado, expirou ou foi cancelado. Peça um novo a quem convidou você.';
 
-invitesRouter.get('/token/:token', (req, res) => {
-  const invite = findValid(req.params.token);
+invitesRouter.get('/token/:token', async (req, res) => {
+  const invite = await findValid(req.params.token);
   if (!invite) return res.status(404).json({ error: INVALID });
   res.json({
     email: invite.email,
@@ -143,28 +144,29 @@ invitesRouter.get('/token/:token', (req, res) => {
   });
 });
 
-invitesRouter.post('/token/:token/accept', (req, res) => {
-  const invite = findValid(req.params.token);
+invitesRouter.post('/token/:token/accept', async (req, res) => {
+  const invite = await findValid(req.params.token);
   if (!invite) return res.status(404).json({ error: INVALID });
   const name = String(req.body?.name ?? '').trim();
   const password = String(req.body?.password ?? '');
   if (!name) return res.status(400).json({ error: 'Informe seu nome.' });
   if (password.length < 6) return res.status(400).json({ error: 'A senha precisa ter ao menos 6 caracteres.' });
-  if (get('SELECT id FROM users WHERE email = ?', invite.email)) {
+  if (await get('SELECT id FROM users WHERE email = ?', invite.email)) {
     return res.status(409).json({ error: 'Já existe uma conta com esse e-mail. Entre com a sua senha.' });
   }
 
-  const userId = tx(() => {
+  const userId = await tx(async () => {
     // O WHERE accepted_at IS NULL impede que dois cliques rapidos criem duas contas.
-    const claimed = run("UPDATE invites SET accepted_at = datetime('now') WHERE id = ? AND accepted_at IS NULL", invite.id);
+    const claimed = await run('UPDATE invites SET accepted_at = now() WHERE id = ? AND accepted_at IS NULL', invite.id);
     if (!claimed.changes) return null;
-    return run(
-      'INSERT INTO users (name, email, password_hash, role, position_id) VALUES (?, ?, ?, ?, ?)',
+    const info = await run(
+      'INSERT INTO users (name, email, password_hash, role, position_id) VALUES (?, ?, ?, ?, ?) RETURNING id',
       name, invite.email, hashPassword(password), invite.role, invite.position_id,
-    ).lastInsertRowid;
+    );
+    return info.lastInsertRowid;
   });
   if (!userId) return res.status(404).json({ error: INVALID });
 
-  createSession(res, userId);
-  res.status(201).json({ user: publicUser(get('SELECT * FROM users WHERE id = ?', userId)) });
+  await createSession(res, userId);
+  res.status(201).json({ user: publicUser(await get('SELECT * FROM users WHERE id = ?', userId)) });
 });

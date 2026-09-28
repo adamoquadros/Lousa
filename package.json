@@ -6,11 +6,16 @@
   "description": "Lousa — o semestre da turma: materias, prazos, responsaveis e resumos em um quadro so",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node --watch server/index.js"
+    "dev": "node --watch server/index.js",
+    "migrate:sqlite": "node scripts/migrate-sqlite-to-postgres.js"
   },
   "dependencies": {
     "express": "^5.1.0",
     "multer": "^2.4.0",
-    "nodemailer": "^10.0.12"
+    "nodemailer": "^10.0.12",
+    "pg": "^8.23.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

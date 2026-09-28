@@ -13,6 +13,7 @@ import { confirmDialog, esc, openModal, toast } from './ui.js';
 
 const ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif';
 const ICON = (mime) => (mime === 'application/pdf' ? 'PDF' : 'IMG');
+const MAX_FILE_MB = 4;
 
 let cached = null;
 
@@ -40,7 +41,7 @@ export function aiPanelHtml() {
            aria-label="Anexar arquivos da matéria">
         <input type="file" data-file-input multiple accept="${ACCEPT}" hidden>
         <strong>Anexar material</strong>
-        <span class="muted-text">Fotos dos slides, PDFs e resumos. Clique ou arraste aqui.</span>
+        <span class="muted-text">Fotos dos slides, PDFs e resumos (até 4MB cada). Clique ou arraste aqui.</span>
       </div>
 
       <div class="ai-files" data-files></div>
@@ -100,16 +101,29 @@ export async function bindAiPanel(body, subject, reload) {
     });
   }
 
+  // Um arquivo por envio: online, a hospedagem recusa requisicoes acima de ~4,5MB.
   async function send(fileList) {
     const files = [...fileList];
     if (!files.length) return;
     drop.classList.add('busy');
+    let ok = 0;
+    const failed = [];
     try {
-      const saved = await api.uploadAttachments(subject.id, files);
-      toast(`${saved.length} arquivo(s) anexado(s).`);
+      for (const file of files) {
+        if (file.size > MAX_FILE_MB * 1024 * 1024) {
+          failed.push(`${file.name} (passa de ${MAX_FILE_MB}MB)`);
+          continue;
+        }
+        try {
+          await api.uploadAttachments(subject.id, [file]);
+          ok += 1;
+        } catch (err) {
+          failed.push(`${file.name} (${err.message})`);
+        }
+      }
+      if (ok) toast(`${ok} arquivo(s) anexado(s).`);
+      if (failed.length) toast(`Não foi possível anexar: ${failed.join('; ')}`, 'error');
       await renderFiles();
-    } catch (err) {
-      toast(err.message, 'error');
     } finally {
       drop.classList.remove('busy');
       input.value = '';

@@ -20,11 +20,12 @@ aiRouter.get('/status', (_req, res) => {
  * Prompt pronto, sem chamar IA nenhuma. E o que alimenta o botao "Copiar" e o
  * "Abrir no Claude" - funciona sem chave e sem custo.
  */
-aiRouter.get('/subjects/:id/prompt', (req, res) => {
+aiRouter.get('/subjects/:id/prompt', async (req, res) => {
   const { id, preset } = readTarget(req, res);
   if (!id) return undefined;
 
-  const prompt = buildPrompt(id, preset, { hasAttachments: listForSubject(id).length > 0 });
+  const attached = await listForSubject(id);
+  const prompt = await buildPrompt(id, preset, { hasAttachments: attached.length > 0 });
   if (!prompt) return res.status(404).json({ error: 'Matéria não encontrada.' });
 
   return res.json({
@@ -48,11 +49,11 @@ aiRouter.post('/subjects/:id/generate', async (req, res, next) => {
     return res.status(503).json({ error: describe().reason });
   }
 
-  const subject = get('SELECT id, name FROM subjects WHERE id = ?', id);
+  const subject = await get('SELECT id, name FROM subjects WHERE id = ?', id);
   if (!subject) return res.status(404).json({ error: 'Matéria não encontrada.' });
 
   const { parts, included, skipped } = await loadParts(id);
-  const prompt = buildPrompt(id, preset, { hasAttachments: included.length > 0 });
+  const prompt = await buildPrompt(id, preset, { hasAttachments: included.length > 0 });
 
   // Sem timeout, uma geracao travada seguraria a conexao ate o limite do proxy.
   // Com anexo a leitura e mais lenta, entao a folga e maior.
@@ -60,13 +61,13 @@ aiRouter.post('/subjects/:id/generate', async (req, res, next) => {
 
   try {
     const content = await generate(prompt, { signal: abort, parts });
-    const info = run(
-      'INSERT INTO notes (subject_id, title, content, created_by) VALUES (?, ?, ?, ?)',
+    const info = await run(
+      'INSERT INTO notes (subject_id, title, content, created_by) VALUES (?, ?, ?, ?) RETURNING id',
       id, presetTitle(preset, subject.name), content, req.user.id,
     );
     // skipped viaja junto para a interface avisar o que ficou de fora.
     return res.status(201).json({
-      ...get('SELECT * FROM notes WHERE id = ?', info.lastInsertRowid),
+      ...(await get('SELECT * FROM notes WHERE id = ?', info.lastInsertRowid)),
       used_attachments: included,
       skipped_attachments: skipped,
     });
