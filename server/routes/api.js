@@ -191,29 +191,53 @@ apiRouter.delete('/subjects/:id', async (req, res) => {
 
 /* -------------------------------------------------------------------- tarefas */
 
+/**
+ * assignees: uma entrada por (pessoa, funcao) - a mesma pessoa aparece de novo
+ * se tiver duas funcoes. Sem funcao: role_id/role_name nulos.
+ */
 async function withAssignees(tasks) {
   if (!tasks.length) return tasks;
   const rows = await all(
-    `SELECT ta.task_id, u.id, u.name, u.color
-       FROM task_assignees ta JOIN users u ON u.id = ta.user_id
-      WHERE ta.task_id = ANY(?::int[])`, tasks.map((t) => t.id));
+    `SELECT ta.task_id, u.id, u.name, u.color, r.id AS role_id, r.name AS role_name
+       FROM task_assignees ta
+       JOIN users u ON u.id = ta.user_id
+       LEFT JOIN task_roles r ON r.id = ta.role_id
+      WHERE ta.task_id = ANY(?::int[])
+      ORDER BY r.id NULLS LAST, lower(u.name)`, tasks.map((t) => t.id));
   for (const t of tasks) {
     t.assignees = rows
       .filter((r) => r.task_id === t.id)
-      .map((r) => ({ id: r.id, name: r.name, color: r.color }));
+      .map((r) => ({ id: r.id, name: r.name, color: r.color, role_id: r.role_id, role_name: r.role_name }));
   }
   return tasks;
 }
 
-async function replaceAssignees(taskId, userIds) {
+/**
+ * Le quem participa da tarefa. Formato novo: assignments [{ user_id, role_id }].
+ * Formato antigo (so pessoas, sem funcao): assignees [ids]. undefined = nao mexe.
+ */
+function readAssignments(body) {
+  if (Array.isArray(body?.assignments)) {
+    return body.assignments.map((a) => ({ user: Number(a?.user_id), role: Number(a?.role_id) || null }));
+  }
+  if (Array.isArray(body?.assignees)) return body.assignees.map((id) => ({ user: Number(id), role: null }));
+  return undefined;
+}
+
+async function replaceAssignees(taskId, assignments) {
   await run('DELETE FROM task_assignees WHERE task_id = ?', taskId);
-  const ids = [...new Set((userIds ?? []).map(Number).filter(Boolean))];
-  if (!ids.length) return;
-  // So entra quem existe: ids de contas removidas sao ignorados.
+  const valid = (assignments ?? []).filter((a) => a.user);
+  if (!valid.length) return;
+  // So entra pessoa e funcao que existem (conta ou funcao removidas sao
+  // ignoradas); repetidos caem no indice unico e sao descartados.
   await run(
-    `INSERT INTO task_assignees (task_id, user_id)
-     SELECT ?, id FROM users WHERE id = ANY(?::int[])
-     ON CONFLICT DO NOTHING`, taskId, ids);
+    `INSERT INTO task_assignees (task_id, user_id, role_id)
+     SELECT ?, a.user_id, r.id
+       FROM unnest(?::int[], ?::int[]) AS a(user_id, role_id)
+       JOIN users u ON u.id = a.user_id
+       LEFT JOIN task_roles r ON r.id = a.role_id
+     ON CONFLICT DO NOTHING`,
+    taskId, valid.map((a) => a.user), valid.map((a) => a.role));
 }
 
 apiRouter.get('/tasks', async (req, res) => {
@@ -251,7 +275,7 @@ apiRouter.post('/tasks', async (req, res) => {
       trim(req.body?.kind) || 'tarefa', trim(req.body?.status) || 'pendente',
       trim(req.body?.priority) || 'media', trim(req.body?.due_date), req.user.id,
     );
-    await replaceAssignees(info.lastInsertRowid, req.body?.assignees);
+    await replaceAssignees(info.lastInsertRowid, readAssignments(req.body));
     return info.lastInsertRowid;
   });
   res.status(201).json((await withAssignees([await get('SELECT * FROM tasks WHERE id = ?', id)]))[0]);
@@ -277,7 +301,8 @@ apiRouter.patch('/tasks/:id', async (req, res) => {
       req.body?.due_date === undefined ? current.due_date : trim(req.body.due_date),
       completedAt, id,
     );
-    if (Array.isArray(req.body?.assignees)) await replaceAssignees(id, req.body.assignees);
+    const assignments = readAssignments(req.body);
+    if (assignments) await replaceAssignees(id, assignments);
   });
   res.json((await withAssignees([await get('SELECT * FROM tasks WHERE id = ?', id)]))[0]);
 });

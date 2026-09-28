@@ -232,6 +232,23 @@ CREATE TABLE IF NOT EXISTS invites (
   accepted_at  TIMESTAMPTZ
 );
 
+-- Funcoes numa tarefa (Responsavel, Conferente, Quem envia...). Diferente
+-- dos cargos (positions), que sao da pessoa na equipe: a funcao e da pessoa
+-- naquela tarefa. As padrao entram so quando a tabela nasce (ver migrate).
+CREATE TABLE IF NOT EXISTS task_roles (
+  id         SERIAL PRIMARY KEY,
+  name       CITEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- task_assignees ganha a funcao. A mesma pessoa pode ter mais de uma funcao
+-- na tarefa, entao a chave deixa de ser (tarefa, pessoa) e vira
+-- (tarefa, pessoa, funcao) - com "sem funcao" contando como um valor so.
+-- Compativel com o codigo antigo: quem nao conhece role_id grava NULL.
+ALTER TABLE task_assignees ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES task_roles(id) ON DELETE SET NULL;
+ALTER TABLE task_assignees DROP CONSTRAINT IF EXISTS task_assignees_pkey;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_task_assignees ON task_assignees (task_id, user_id, role_id) NULLS NOT DISTINCT;
+
 -- Conteudo dos anexos e das imagens das materias. Fica no banco (e nao em
 -- disco) porque na Vercel cada requisicao roda numa maquina descartavel.
 -- attachments.stored_as e subjects.cover_image/backdrop_image apontam para key.
@@ -253,9 +270,19 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user     ON sessions(user_id);
 `;
 
 /** Cria as tabelas que faltarem. */
+export const DEFAULT_TASK_ROLES = ['Responsável', 'Conferente', 'Quem envia'];
+
 export async function migrate() {
   if (!pool) throw new DbNotConfigured();
+  const { rows } = await pool.query("SELECT to_regclass('task_roles') IS NULL AS fresh");
   await pool.query(SCHEMA);
+  // Funcoes padrao so na criacao da tabela: se a turma apagar uma, ela nao volta.
+  if (rows[0].fresh) {
+    await pool.query(
+      'INSERT INTO task_roles (name) SELECT unnest($1::text[]) ON CONFLICT DO NOTHING',
+      [DEFAULT_TASK_ROLES],
+    );
+  }
 }
 
 /**

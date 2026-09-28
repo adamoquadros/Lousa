@@ -237,6 +237,12 @@ const TAB_BINDERS = {
 
 /* ================================================== linha de tarefa (compartilhada) */
 
+/** "(ÁQ) Conferente": avatar + funcao. Sem funcao, mostra o primeiro nome. */
+const assignmentChip = (a) => `
+  <span class="pill assign-chip" title="${esc(a.name)}${a.role_name ? ` — ${esc(a.role_name)}` : ''}">
+    ${avatar(a, true)}${esc(a.role_name || a.name.split(' ')[0])}
+  </span>`;
+
 export function taskRow(task, showSubject = false) {
   const done = task.status === 'concluida';
   const due = dueLabel(task.due_date, done);
@@ -251,13 +257,13 @@ export function taskRow(task, showSubject = false) {
         <div class="task-meta">
           ${showSubject && task.subject_name
             ? `<span class="pill"><span class="subject-dot" style="background:${esc(task.subject_color)}"></span>${esc(task.subject_name)}</span>` : ''}
-          <span class="pill muted">${esc(KINDS[task.kind] || task.kind)}</span>
-          ${task.priority === 'alta' ? '<span class="pill strong">Alta</span>' : ''}
-          ${task.status === 'andamento' ? '<span class="pill muted">Em andamento</span>' : ''}
           ${due ? `<span class="pill ${due.tone}">${esc(due.text)}</span>` : ''}
           ${task.assignees?.length
-            ? `<span class="avatars">${task.assignees.map((a) => avatar(a, true)).join('')}</span>`
+            ? task.assignees.map(assignmentChip).join('')
             : '<span class="pill muted">Sem responsável</span>'}
+          ${task.priority === 'alta' ? '<span class="pill strong">Alta</span>' : ''}
+          ${task.status === 'andamento' ? '<span class="pill muted">Em andamento</span>' : ''}
+          <span class="pill muted">${esc(KINDS[task.kind] || task.kind)}</span>
         </div>
       </div>
       <div class="task-actions">
@@ -464,16 +470,41 @@ export function openSubjectForm(subject, onSaved) {
 
 /* ======================================================= formulario de tarefa */
 
+const NEW_ROLE = '__new';
+
+/** Uma linha "pessoa + funcao" do formulario de tarefa. */
+function assignmentRowHtml(a = {}) {
+  const people = ctx.state.team;
+  const roles = ctx.state.taskRoles;
+  return `
+    <div class="assign-row">
+      <select name="a-user" aria-label="Pessoa">
+        <option value="">Escolha a pessoa…</option>
+        ${people.map((u) => `<option value="${u.id}"${u.id === a.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}
+      </select>
+      <select name="a-role" aria-label="Função">
+        <option value="">Sem função</option>
+        ${roles.map((r) => `<option value="${r.id}"${r.id === a.role_id ? ' selected' : ''}>${esc(r.name)}</option>`).join('')}
+        <option value="${NEW_ROLE}">+ Nova função…</option>
+      </select>
+      <button type="button" class="btn btn-ghost btn-sm btn-danger" data-act="remove" title="Tirar da tarefa">&times;</button>
+      <input type="text" name="a-newrole" placeholder="Nome da nova função (ex.: Revisor)" maxlength="40" hidden>
+    </div>`;
+}
+
 export function openTaskForm(task, onSaved) {
   const editing = Boolean(task?.id);
   const subjects = ctx.state.subjects;
-  const selectedIds = new Set((task?.assignees ?? []).map((a) => a.id));
+  // Tarefa nova ja vem com uma linha na primeira funcao (Responsável, por padrao).
+  const initial = task?.assignees?.length
+    ? task.assignees
+    : [{ id: null, role_id: ctx.state.taskRoles[0]?.id ?? null }];
 
   openModal({
     html: `
       <div class="modal-head">
         <div><h3>${editing ? 'Editar tarefa' : 'Nova tarefa'}</h3>
-        <p>Defina o prazo, o tipo e quem fica responsável.</p></div>
+        <p>Defina o prazo, o tipo e quem faz o quê.</p></div>
         <div class="spacer"></div><button class="btn btn-ghost btn-sm" data-close>&times;</button>
       </div>
       <div class="modal-body">
@@ -490,14 +521,10 @@ export function openTaskForm(task, onSaved) {
         </div>
         ${field('Descrição', `<textarea name="description" placeholder="O que precisa ser feito, onde entregar...">${esc(task?.description)}</textarea>`)}
         <div class="field">
-          <label>Responsáveis</label>
-          <div class="checks">
-            ${ctx.state.team.map((u) => `
-              <label class="check-chip${selectedIds.has(u.id) ? ' on' : ''}">
-                <input type="checkbox" name="assignee" value="${u.id}"${selectedIds.has(u.id) ? ' checked' : ''}>
-                ${avatar(u, true)} ${esc(u.name)}
-              </label>`).join('')}
-          </div>
+          <label>Pessoas e funções</label>
+          <div class="assign-list" data-slot="assignments"></div>
+          <button type="button" class="btn btn-sm self-start" data-act="add-assignment">+ Adicionar pessoa</button>
+          <span class="hint">Ex.: quem faz, quem confere e quem envia. A mesma pessoa pode ter mais de uma função.</span>
         </div>
       </div>
       <div class="modal-foot">
@@ -505,11 +532,53 @@ export function openTaskForm(task, onSaved) {
         <button class="btn btn-primary" data-act="save">${editing ? 'Salvar' : 'Criar tarefa'}</button>
       </div>`,
     onMount(root, close) {
-      root.querySelectorAll('.check-chip input').forEach((input) => {
-        input.onchange = () => input.closest('.check-chip').classList.toggle('on', input.checked);
-      });
+      const list = root.querySelector('[data-slot="assignments"]');
+
+      const addRow = (a) => {
+        list.insertAdjacentHTML('beforeend', assignmentRowHtml(a));
+        const row = list.lastElementChild;
+        const role = row.querySelector('[name="a-role"]');
+        const newRole = row.querySelector('[name="a-newrole"]');
+        role.onchange = () => {
+          newRole.hidden = role.value !== NEW_ROLE;
+          if (!newRole.hidden) newRole.focus();
+        };
+        row.querySelector('[data-act="remove"]').onclick = () => row.remove();
+        return row;
+      };
+      initial.forEach(addRow);
+      root.querySelector('[data-act="add-assignment"]').onclick = () => addRow({}).querySelector('select').focus();
+
+      /**
+       * Linhas -> [{ user_id, role_id }]. Cria antes as funcoes novas digitadas
+       * (o servidor devolve a existente se o nome ja existir).
+       */
+      async function readAssignments() {
+        const out = [];
+        for (const row of list.querySelectorAll('.assign-row')) {
+          const userId = Number(row.querySelector('[name="a-user"]').value);
+          if (!userId) continue; // linha sem pessoa escolhida: ignorada
+          const roleSelect = row.querySelector('[name="a-role"]');
+          let roleId = Number(roleSelect.value) || null;
+          if (roleSelect.value === NEW_ROLE) {
+            const name = row.querySelector('[name="a-newrole"]').value.trim();
+            if (!name) throw new Error('Informe o nome da nova função (ou escolha outra).');
+            const created = await api.createTaskRole({ name });
+            if (!ctx.state.taskRoles.some((r) => r.id === created.id)) ctx.state.taskRoles.push(created);
+            // Se salvar falhar depois disso, um segundo Salvar reusa a funcao criada.
+            roleSelect.querySelector(`option[value="${NEW_ROLE}"]`)
+              .insertAdjacentHTML('beforebegin', `<option value="${created.id}">${esc(created.name)}</option>`);
+            roleSelect.value = String(created.id);
+            row.querySelector('[name="a-newrole"]').hidden = true;
+            roleId = created.id;
+          }
+          out.push({ user_id: userId, role_id: roleId });
+        }
+        return out;
+      }
 
       root.querySelector('[data-act="save"]').onclick = async (e) => {
+        const button = e.currentTarget;
         const payload = {
           subject_id: Number(val(root, 'subject_id')),
           title: val(root, 'title'),
@@ -518,18 +587,61 @@ export function openTaskForm(task, onSaved) {
           priority: val(root, 'priority'),
           status: val(root, 'status'),
           due_date: val(root, 'due_date'),
-          assignees: [...root.querySelectorAll('[name="assignee"]:checked')].map((i) => Number(i.value)),
         };
         if (!payload.title) return showFormError(root, 'Informe o título da tarefa.');
         if (!payload.subject_id) return showFormError(root, 'Selecione a matéria.');
         try {
-          await withBusy(e.currentTarget, () => (editing
-            ? api.updateTask(task.id, payload)
-            : api.createTask(payload)));
+          await withBusy(button, async () => {
+            payload.assignments = await readAssignments();
+            return editing ? api.updateTask(task.id, payload) : api.createTask(payload);
+          });
           toast(editing ? 'Tarefa atualizada.' : 'Tarefa criada.');
           close();
           await onSaved?.();
         } catch (err) { showFormError(root, err.message); }
+      };
+    },
+  });
+}
+
+/* ======================================================= formulario de funcao na tarefa */
+
+/** Renomear (ou criar) uma funcao. Usado na tela Equipe, pelo admin. */
+export function openTaskRoleForm(role, onSaved) {
+  const editing = Boolean(role?.id);
+  openModal({
+    compact: true,
+    html: `
+      <div class="modal-head">
+        <div><h3>${editing ? 'Renomear função' : 'Nova função'}</h3>
+        <p>${editing
+          ? `Usada em ${role.uses} atribuição(ões); todas passam a mostrar o nome novo.`
+          : 'Ex.: Revisor, Quem apresenta, Quem imprime. Aparece ao escolher as pessoas de uma tarefa.'}</p></div>
+        <div class="spacer"></div><button class="btn btn-ghost btn-sm" data-close>&times;</button>
+      </div>
+      <div class="modal-body">
+        ${field('Nome da função *', `<input type="text" name="name" maxlength="40" value="${esc(role?.name)}">`)}
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close>Cancelar</button>
+        <button class="btn btn-primary" data-act="save">${editing ? 'Salvar' : 'Criar função'}</button>
+      </div>`,
+    onMount(root, close) {
+      const button = root.querySelector('[data-act="save"]');
+      button.onclick = async (e) => {
+        const name = val(root, 'name');
+        if (!name) return showFormError(root, 'Informe o nome da função.');
+        try {
+          await withBusy(e.currentTarget, () => (editing
+            ? api.updateTaskRole(role.id, { name })
+            : api.createTaskRole({ name })));
+          toast(editing ? 'Função renomeada.' : 'Função criada.');
+          close();
+          await onSaved?.();
+        } catch (err) { showFormError(root, err.message); }
+      };
+      root.querySelector('[name="name"]').onkeydown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); button.click(); }
       };
     },
   });

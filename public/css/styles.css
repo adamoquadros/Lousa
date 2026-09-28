@@ -539,6 +539,16 @@ input[type="color"] {
 }
 .task-meta > * { flex: none; }
 .task-actions { display: flex; gap: var(--spacing-4); flex: none; align-self: center; }
+/* Pessoa + funcao na linha da tarefa: "(ÁQ) Conferente". */
+.assign-chip { padding-left: 2px; gap: var(--spacing-6); }
+.assign-chip .avatar { box-shadow: none; }
+
+/* Formulario da tarefa: uma linha por pessoa + funcao. */
+.assign-list { display: flex; flex-direction: column; gap: var(--spacing-8); }
+.assign-list:empty { display: none; }
+.assign-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--spacing-8); align-items: center; }
+.assign-row input[name="a-newrole"] { grid-column: 2 / 3; }
+
 .avatars { display: flex; }
 .avatars .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }
 .avatars .avatar:first-child { margin-left: 0; }

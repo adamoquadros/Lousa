@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { STATUSES, WEEKDAYS, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, toast } from './ui.js';
 import {
-  bindTaskRows, initModals, openInviteForm, openPasswordForm, openPositionForm, openProfileForm, openSemesterForm,
+  bindTaskRows, initModals, openInviteForm, openPasswordForm, openPositionForm, openProfileForm, openSemesterForm, openTaskRoleForm,
   openSubjectForm, openSubjectModal, openTaskForm, openUserForm, showInviteResult, taskRow,
 } from './modals.js';
 
@@ -27,6 +27,7 @@ const state = {
   team: [],
   users: [],
   positions: [],
+  taskRoles: [], // funcoes numa tarefa: Responsável, Conferente, Quem envia...
   invites: null, // { mail_enabled, base_is_local, invites: [...] } — so admin
   overview: null,
   view: localStorage.getItem('view') || 'inicio',
@@ -75,7 +76,7 @@ async function loadAll() {
   }
   if (state.semesterId) localStorage.setItem('semesterId', state.semesterId);
 
-  [state.team, state.positions] = await Promise.all([api.team(), api.positions()]);
+  [state.team, state.positions, state.taskRoles] = await Promise.all([api.team(), api.positions(), api.taskRoles()]);
   if (state.semesterId) {
     const [subjects, tasks, overview] = await Promise.all([
       api.subjects(state.semesterId),
@@ -785,6 +786,55 @@ function viewAgenda(view) {
 
 /* ------------------------------------------------------------ equipe */
 
+/** Funcoes nas tarefas (Responsável, Conferente...). Gerenciar e so do admin. */
+function taskRolesSection() {
+  const roles = state.taskRoles;
+  return `
+    <section class="home-section">
+      <div class="section-head">
+        <div><h3>Funções nas tarefas</h3><p class="section-sub">O papel de cada pessoa numa tarefa: quem faz, quem confere, quem envia. Qualquer membro pode criar uma nova ao montar uma tarefa.</p></div>
+        <button class="btn" data-act="new-task-role">+ Nova função</button>
+      </div>
+      ${roles.length ? `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Função</th><th>Em uso</th><th></th></tr></thead>
+          <tbody>
+            ${roles.map((r) => `<tr>
+              <td><strong>${esc(r.name)}</strong></td>
+              <td>${r.uses ? `${r.uses} atribuição(ões)` : '<span class="muted-text">Ainda não usada</span>'}</td>
+              <td style="text-align:right;white-space:nowrap">
+                <button class="btn btn-sm" data-act="edit-task-role" data-id="${r.id}">Renomear</button>
+                <button class="btn btn-sm btn-danger" data-act="del-task-role" data-id="${r.id}">Excluir</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`
+        : '<div class="empty"><strong>Nenhuma função ainda</strong>Crie funções como Responsável, Conferente ou Quem envia.</div>'}
+    </section>`;
+}
+
+function bindTaskRolesSection(view) {
+  view.querySelector('[data-act="new-task-role"]').onclick = () => openTaskRoleForm(null, refresh);
+  view.querySelectorAll('[data-act="edit-task-role"]').forEach((b) => {
+    b.onclick = () => openTaskRoleForm(state.taskRoles.find((r) => r.id === Number(b.dataset.id)), refresh);
+  });
+  view.querySelectorAll('[data-act="del-task-role"]').forEach((b) => {
+    b.onclick = async () => {
+      const role = state.taskRoles.find((r) => r.id === Number(b.dataset.id));
+      const ok = await confirmDialog({
+        title: `Excluir a função ${role.name}?`,
+        message: role.uses
+          ? 'As pessoas continuam nas tarefas, só que sem essa função.'
+          : 'Nenhuma tarefa usa essa função.',
+        confirmText: 'Excluir função',
+      });
+      if (!ok) return;
+      try { await api.deleteTaskRole(role.id); toast('Função excluída.'); await refresh(); }
+      catch (err) { toast(err.message, 'error'); }
+    };
+  });
+}
+
 /** Convites que ainda nao viraram conta. So aparece para admin. */
 function invitesSection() {
   const data = state.invites;
@@ -879,7 +929,9 @@ function viewTeam(view) {
             </tbody>
           </table></div>`
           : '<div class="empty"><strong>Nenhum cargo ainda</strong>Crie cargos e escolha um para cada pessoa em Editar.</div>'}
-      </section>` : ''}`;
+      </section>` : ''}
+
+    ${isAdmin ? taskRolesSection() : ''}`;
 
   if (!isAdmin) return;
   view.querySelector('[data-act="invite"]').onclick = () => openInviteForm(refresh);
@@ -904,6 +956,7 @@ function viewTeam(view) {
     };
   });
   view.querySelector('[data-act="new-position"]').onclick = () => openPositionForm(null, refresh);
+  bindTaskRolesSection(view);
   view.querySelectorAll('[data-act="edit-position"]').forEach((b) => {
     b.onclick = () => openPositionForm(state.positions.find((p) => p.id === Number(b.dataset.id)), refresh);
   });
