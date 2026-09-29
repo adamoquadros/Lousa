@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { all, get, run, tx } from '../db.js';
-import { canManage, requireAuth } from '../auth.js';
+import { canManage, requireAuth, requirePermission } from '../auth.js';
 import { MAX_FILE_BYTES, isAllowedMime } from '../attachments.js';
 import { MAX_UPLOAD_MB, deleteBlobs, getBlob, putBlob } from '../storage.js';
 
@@ -47,7 +47,7 @@ attachmentsRouter.get('/subjects/:id/attachments', async (req, res) => {
   res.json((await all(`${SELECT} WHERE a.subject_id = ? ORDER BY a.created_at DESC`, id)).map(shape));
 });
 
-attachmentsRouter.post('/subjects/:id/attachments', async (req, res, next) => {
+attachmentsRouter.post('/subjects/:id/attachments', requirePermission('resumos.editar'), async (req, res, next) => {
   const id = Number(req.params.id);
   if (!id || !await get('SELECT id FROM subjects WHERE id = ?', id)) {
     return res.status(400).json({ error: 'Matéria inválida.' });
@@ -100,8 +100,8 @@ attachmentsRouter.get('/attachments/:id/file', async (req, res) => {
 attachmentsRouter.delete('/attachments/:id', async (req, res) => {
   const a = await get('SELECT * FROM attachments WHERE id = ?', Number(req.params.id));
   if (!a) return res.status(404).json({ error: 'Anexo não encontrado.' });
-  if (!canManage(req.user, a)) {
-    return res.status(403).json({ error: 'Somente quem enviou o arquivo ou um administrador pode removê-lo.' });
+  if (!canManage(req.user, a, 'resumos.excluir')) {
+    return res.status(403).json({ error: 'Somente quem enviou o arquivo ou um perfil com essa permissão pode removê-lo.' });
   }
   await tx(async () => {
     await run('DELETE FROM attachments WHERE id = ?', a.id);

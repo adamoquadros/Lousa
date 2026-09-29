@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { get, run } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requirePermission } from '../auth.js';
 import { AiError, describe, generate, isEnabled } from '../ai.js';
 import { PRESETS, buildPrompt, isPreset, presetTitle } from '../prompts.js';
 import { listForSubject, loadParts } from '../attachments.js';
@@ -41,7 +41,7 @@ aiRouter.get('/subjects/:id/prompt', async (req, res) => {
  * Geracao automatica: monta o prompt, chama o provedor e grava o resultado
  * como um resumo da materia.
  */
-aiRouter.post('/subjects/:id/generate', async (req, res, next) => {
+aiRouter.post('/subjects/:id/generate', requirePermission('ia.gerar'), async (req, res, next) => {
   const { id, preset } = readTarget(req, res);
   if (!id) return undefined;
 

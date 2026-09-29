@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { STATUSES, WEEKDAYS, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, toast } from './ui.js';
 import {
-  bindTaskRows, initModals, openInviteForm, openPasswordForm, openPositionForm, openProfileForm, openSemesterForm, openTaskRoleForm,
+  bindTaskRows, initModals, openInviteForm, openPasswordForm, openPositionForm, openProfileForm, openSemesterForm, openTaskRoleForm, openProfileEditor,
   openSubjectForm, openSubjectModal, openTaskForm, openUserForm, showInviteResult, taskRow,
 } from './modals.js';
 
@@ -28,6 +28,7 @@ const state = {
   users: [],
   positions: [],
   taskRoles: [], // funcoes numa tarefa: Responsável, Conferente, Quem envia...
+  profiles: { profiles: [], groups: [] }, // perfis de acesso + catalogo de direitos
   invites: null, // { mail_enabled, base_is_local, invites: [...] } — so admin
   overview: null,
   view: localStorage.getItem('view') || 'inicio',
@@ -35,6 +36,9 @@ const state = {
 };
 
 initModals({ state, reload: refresh });
+
+/** O perfil de quem esta logado tem este direito? (O servidor confere de novo.) */
+const can = (permission) => Boolean(state.user?.permissions?.includes(permission));
 
 /* ============================================================ tema */
 
@@ -87,12 +91,12 @@ async function loadAll() {
   } else {
     Object.assign(state, { subjects: [], tasks: [], overview: null });
   }
-  if (state.user.role === 'admin') {
-    [state.users, state.invites] = await Promise.all([
-      api.users().catch(() => []),
-      api.invites().catch(() => null),
-    ]);
-  }
+  // Cada parte so e pedida por quem tem o direito de ve-la.
+  [state.profiles, state.users, state.invites] = await Promise.all([
+    api.profiles().catch(() => ({ profiles: [], groups: [] })),
+    can('equipe.gerenciar') ? api.users().catch(() => []) : [],
+    can('equipe.convidar') ? api.invites().catch(() => null) : null,
+  ]);
 }
 
 /** Recarrega os dados e repinta a view atual. */
@@ -286,6 +290,7 @@ const NAV = [
   { id: 'tarefas', label: 'Tarefas' },
   { id: 'agenda', label: 'Agenda' },
   { id: 'equipe', label: 'Equipe' },
+  { id: 'perfis', label: 'Perfis e acesso' },
 ];
 
 function renderShell() {
@@ -300,7 +305,7 @@ function renderShell() {
         <button class="user-chip" id="user-chip" aria-haspopup="menu" aria-expanded="false" title="Minha conta">
           ${avatar(state.user)}
           <span><span class="name">${esc(state.user.name.split(' ')[0])}</span>
-          <span class="role">${state.user.role === 'admin' ? 'Admin' : 'Membro'}</span></span>
+          <span class="role">${esc(state.user.profile_name)}</span></span>
           <span class="chevron" aria-hidden="true">&#9662;</span>
         </button>
         <div class="menu" id="user-menu" role="menu" hidden>
@@ -310,7 +315,7 @@ function renderShell() {
           </div>
           <button class="menu-item" role="menuitem" data-menu="profile">Editar perfil</button>
           <button class="menu-item" role="menuitem" data-menu="password">Alterar senha</button>
-          ${state.user.role === 'admin'
+          ${can('equipe.convidar')
             ? '<button class="menu-item" role="menuitem" data-menu="invite">Convidar participante</button>' : ''}
           <div class="menu-sep"></div>
           <button class="menu-item" role="menuitem" data-menu="logout">Sair</button>
@@ -324,8 +329,8 @@ function renderShell() {
           ${n.id === 'tarefas' && openCount ? `<span class="count">${openCount}</span>` : ''}
         </button>`).join('')}
         <div class="nav-sep"></div>
-        <button class="nav-item" id="quick-subject">+ Nova matéria</button>
-        <button class="nav-item" id="quick-task">+ Nova tarefa</button>
+        ${can('materias.editar') ? '<button class="nav-item" id="quick-subject">+ Nova matéria</button>' : ''}
+        ${can('tarefas.editar') ? '<button class="nav-item" id="quick-task">+ Nova tarefa</button>' : ''}
       </nav>
       <main class="content"><div class="content-inner" id="view"></div></main>
     </div>`;
@@ -338,11 +343,11 @@ function renderShell() {
   root.querySelectorAll('[data-view]').forEach((b) => {
     b.onclick = () => goTo(b.dataset.view);
   });
-  document.getElementById('quick-subject').onclick = () => requireSemester(() => openSubjectForm(null, refresh));
-  document.getElementById('quick-task').onclick = () => requireSemester(() => {
+  document.getElementById('quick-subject')?.addEventListener('click', () => requireSemester(() => openSubjectForm(null, refresh)));
+  document.getElementById('quick-task')?.addEventListener('click', () => requireSemester(() => {
     if (!state.subjects.length) return toast('Cadastre uma matéria antes de criar tarefas.', 'error');
     openTaskForm({ subject_id: state.subjects[0].id }, refresh);
-  });
+  }));
 
   renderView();
 }
@@ -412,7 +417,7 @@ function renderView() {
     return;
   }
   ({
-    inicio: viewHome, materias: viewSubjects, tarefas: viewTasks, agenda: viewAgenda, equipe: viewTeam,
+    inicio: viewHome, materias: viewSubjects, tarefas: viewTasks, agenda: viewAgenda, equipe: viewTeam, perfis: viewProfiles,
   }[state.view] ?? viewHome)(view);
 }
 
@@ -427,8 +432,8 @@ function semesterPicker() {
           ${esc(s.name)}${s.is_current ? ' (atual)' : ''}</option>`).join('')}
         ${state.semesters.length ? '' : '<option value="">Nenhum semestre</option>'}
       </select>
-      <button class="btn btn-sm" id="semester-edit" title="Editar semestre"${state.semesterId ? '' : ' disabled'}>Editar</button>
-      <button class="btn btn-sm" id="semester-new" title="Novo semestre">+ Novo</button>
+      ${can('semestres.editar') ? `<button class="btn btn-sm" id="semester-edit" title="Editar semestre"${state.semesterId ? '' : ' disabled'}>Editar</button>` : ''}
+      ${can('semestres.criar') ? '<button class="btn btn-sm" id="semester-new" title="Novo semestre">+ Novo</button>' : ''}
     </div>`;
 }
 
@@ -438,11 +443,11 @@ function bindSemesterPicker(view) {
     localStorage.setItem('semesterId', state.semesterId ?? '');
     await refresh();
   };
-  view.querySelector('#semester-new').onclick = () => openSemesterForm(null, onSemesterSaved);
-  view.querySelector('#semester-edit').onclick = () => {
+  view.querySelector('#semester-new')?.addEventListener('click', () => openSemesterForm(null, onSemesterSaved));
+  view.querySelector('#semester-edit')?.addEventListener('click', () => {
     const semester = state.semesters.find((s) => s.id === state.semesterId);
     if (semester) openSemesterForm(semester, onSemesterSaved);
-  };
+  });
 }
 
 /**
@@ -535,7 +540,7 @@ function viewHome(view) {
       <section class="home-section">
         <div class="section-head">
           <div><h3>Matérias</h3><p class="section-sub">${state.subjects.length} matéria(s) em ${esc(semester.name)}. Clique para abrir.</p></div>
-          <button class="btn btn-primary" data-act="new-subject">+ Nova matéria</button>
+          ${can('materias.editar') ? '<button class="btn btn-primary" data-act="new-subject">+ Nova matéria</button>' : ''}
         </div>
         ${subjectTable()}
       </section>`}`;
@@ -558,7 +563,7 @@ const noSemester = () => `
   <div class="empty">
     <strong>Comece criando um semestre</strong>
     Ex.: 2026.1. Depois, cadastre as matérias, os professores, os dias de aula e as tarefas.
-    <div style="margin-top:14px"><button class="btn btn-primary" id="first-semester">Criar semestre</button></div>
+    ${can('semestres.criar') ? '<div style="margin-top:14px"><button class="btn btn-primary" id="first-semester">Criar semestre</button></div>' : ''}
   </div>`;
 
 /** Dias de aula sem repeticao, abreviados: "Seg · Qua". */
@@ -589,7 +594,7 @@ function subjectTable() {
             <td>${days.length ? esc(days.join(' · ')) : '<span class="muted-text">--</span>'}</td>
             <td class="c">${s.open_tasks ? `<span class="num">${s.open_tasks}</span>` : '<span class="num zero">0</span>'}</td>
             <td>${due ? `<span class="pill ${due.tone}">${esc(due.text)}</span>` : '<span class="muted-text">Em dia</span>'}</td>
-            <td style="text-align:right"><button class="btn btn-sm" data-edit-subject="${s.id}">Editar</button></td>
+            <td style="text-align:right">${can('materias.editar') ? `<button class="btn btn-sm" data-edit-subject="${s.id}">Editar</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -611,7 +616,7 @@ function viewSubjects(view) {
     ${!semester ? noSemester() : `
       <div class="grid">
         ${state.subjects.map(subjectCard).join('')}
-        <button class="add-card" data-act="new-subject"><span style="font-size:22px">+</span>Nova matéria</button>
+        ${can('materias.editar') ? '<button class="add-card" data-act="new-subject"><span style="font-size:22px">+</span>Nova matéria</button>' : ''}
       </div>`}`;
 
   bindSemesterPicker(view);
@@ -668,7 +673,7 @@ function subjectCard(s) {
         <div class="prof">${s.professor ? esc(s.professor) : 'Sem professor cadastrado'}</div>
         <div class="meta">${pills.slice(0, 2).join('')}</div>
       </button>
-      <button class="btn btn-sm card-edit" data-edit-subject="${s.id}" title="Editar ${esc(s.name)}">Editar</button>
+      ${can('materias.editar') ? `<button class="btn btn-sm card-edit" data-edit-subject="${s.id}" title="Editar ${esc(s.name)}">Editar</button>` : ''}
     </div>`;
 }
 
@@ -690,7 +695,7 @@ function viewTasks(view) {
     <div class="page-head">
       <div><h2>Tarefas</h2><p>${visible.length} de ${state.tasks.length} tarefa(s)</p></div>
       <div class="spacer"></div>
-      <button class="btn btn-primary" data-act="new-task">+ Nova tarefa</button>
+      ${can('tarefas.editar') ? '<button class="btn btn-primary" data-act="new-task">+ Nova tarefa</button>' : ''}
     </div>
     <div class="toolbar">
       <input type="search" id="f-q" placeholder="Buscar..." value="${esc(f.q)}">
@@ -708,7 +713,8 @@ function viewTasks(view) {
       : `<div class="empty"><strong>Nada por aqui</strong>${state.tasks.length
           ? 'Nenhuma tarefa corresponde aos filtros.' : 'Crie a primeira tarefa da turma.'}</div>`}`;
 
-  view.querySelector('[data-act="new-task"]').onclick = () => {
+  const newTask = view.querySelector('[data-act="new-task"]');
+  if (newTask) newTask.onclick = () => {
     if (!state.subjects.length) return toast('Cadastre uma matéria antes de criar tarefas.', 'error');
     openTaskForm({ subject_id: Number(f.subject) || state.subjects[0].id }, refresh);
   };
@@ -857,7 +863,7 @@ function invitesSection() {
             ${pending.map((i) => `<tr>
               <td><strong>${esc(i.email)}</strong></td>
               <td>${i.position_name ? esc(i.position_name) : '<span class="muted-text">--</span>'}</td>
-              <td>${i.role === 'admin' ? 'Administrador' : 'Membro'}</td>
+              <td>${esc(i.profile_name || 'Membro')}</td>
               <td>${esc(i.invited_by_name || '--')}</td>
               <td>${i.expired ? '<span class="pill alert">Expirado</span>'
                 : `<span class="pill muted">até ${esc(formatDate(i.expires_at.slice(0, 10)))}</span>`}</td>
@@ -872,46 +878,50 @@ function invitesSection() {
 }
 
 function viewTeam(view) {
-  const isAdmin = state.user.role === 'admin';
-  const people = isAdmin ? state.users : state.team;
+  const canUsers = can('equipe.gerenciar');
+  const canInvite = can('equipe.convidar');
+  const canRoles = can('equipe.cargos');
+  // Quem gerencia contas ve a lista completa (tarefas abertas, quem pode editar).
+  const people = canUsers ? state.users : state.team;
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h2>Equipe</h2><p>${isAdmin
-        ? 'Cadastre as contas, crie cargos e atribua um cargo a cada integrante.'
-        : 'Pessoas da turma e o cargo de cada uma.'}</p></div>
+      <div><h2>Equipe</h2><p>${canUsers
+        ? 'Cadastre as contas e defina o perfil e o cargo de cada integrante.'
+        : 'Pessoas da turma, o perfil e o cargo de cada uma.'}</p></div>
       <div class="spacer"></div>
-      ${isAdmin ? `
-        <button class="btn" data-act="new-user" title="Cria a conta na hora, com senha definida por você">+ Adicionar pessoa</button>
-        <button class="btn btn-primary" data-act="invite">Convidar participante</button>` : ''}
+      ${canUsers ? '<button class="btn" data-act="new-user" title="Cria a conta na hora, com senha definida por você">+ Adicionar pessoa</button>' : ''}
+      ${canInvite ? '<button class="btn btn-primary" data-act="invite">Convidar participante</button>' : ''}
     </div>
     <div class="table-wrap"><table class="table">
       <thead><tr>
-        <th>Pessoa</th><th>Cargo</th><th>E-mail</th><th>Perfil</th>
-        ${isAdmin ? '<th>Tarefas abertas</th><th></th>' : ''}
+        <th>Pessoa</th><th>Perfil</th><th>Cargo</th><th>E-mail</th>
+        ${canUsers ? '<th>Tarefas abertas</th><th></th>' : ''}
       </tr></thead>
       <tbody>
         ${people.map((u) => `<tr>
           <td><div class="member-cell">${avatar(u)}<strong>${esc(u.name)}</strong>
             ${u.id === state.user.id ? '<span class="pill muted">você</span>' : ''}</div></td>
+          <td>${profilePill(u)}</td>
           <td>${u.position_name ? `<span class="pill">${esc(u.position_name)}</span>` : '<span class="muted-text">--</span>'}</td>
           <td>${esc(u.email)}</td>
-          <td><span class="pill ${u.role === 'admin' ? 'strong' : 'muted'}">${u.role === 'admin' ? 'Administrador' : 'Membro'}</span></td>
-          ${isAdmin ? `<td>${u.open_tasks ?? 0}</td>
+          ${canUsers ? `<td>${u.open_tasks ?? 0}</td>
             <td style="text-align:right;white-space:nowrap">
-              <button class="btn btn-sm" data-act="edit-user" data-id="${u.id}">Editar</button>
-              ${u.id === state.user.id ? '' : `<button class="btn btn-sm btn-danger" data-act="del-user" data-id="${u.id}">Remover</button>`}
+              ${u.manageable ? `
+                <button class="btn btn-sm" data-act="edit-user" data-id="${u.id}">Editar</button>
+                <button class="btn btn-sm btn-danger" data-act="del-user" data-id="${u.id}">Remover</button>`
+                : `<span class="hint" title="Só dá para gerenciar quem está abaixo de você na hierarquia">${u.id === state.user.id ? 'Seus dados: menu da conta' : 'Acima ou no seu nível'}</span>`}
             </td>` : ''}
         </tr>`).join('')}
       </tbody>
     </table></div>
 
-    ${isAdmin ? invitesSection() : ''}
+    ${canInvite ? invitesSection() : ''}
 
-    ${isAdmin ? `
+    ${canRoles ? `
       <section class="home-section">
         <div class="section-head">
-          <div><h3>Cargos</h3><p class="section-sub">Rótulos da equipe (Líder, Revisor...). As permissões continuam vindo do perfil.</p></div>
+          <div><h3>Cargos</h3><p class="section-sub">Rótulos da equipe (Líder, Revisor...). O que cada pessoa pode fazer vem do perfil, não do cargo.</p></div>
           <button class="btn" data-act="new-position">+ Novo cargo</button>
         </div>
         ${state.positions.length ? `
@@ -929,12 +939,29 @@ function viewTeam(view) {
             </tbody>
           </table></div>`
           : '<div class="empty"><strong>Nenhum cargo ainda</strong>Crie cargos e escolha um para cada pessoa em Editar.</div>'}
-      </section>` : ''}
+      </section>
+      ${taskRolesSection()}` : ''}`;
 
-    ${isAdmin ? taskRolesSection() : ''}`;
+  view.querySelector('[data-act="new-user"]')?.addEventListener('click', () => openUserForm(null, refresh));
+  view.querySelector('[data-act="invite"]')?.addEventListener('click', () => openInviteForm(refresh));
 
-  if (!isAdmin) return;
-  view.querySelector('[data-act="invite"]').onclick = () => openInviteForm(refresh);
+  view.querySelectorAll('[data-act="edit-user"]').forEach((b) => {
+    b.onclick = () => openUserForm(state.users.find((u) => u.id === Number(b.dataset.id)), refresh);
+  });
+  view.querySelectorAll('[data-act="del-user"]').forEach((b) => {
+    b.onclick = async () => {
+      const user = state.users.find((u) => u.id === Number(b.dataset.id));
+      const ok = await confirmDialog({
+        title: `Remover ${user.name}?`,
+        message: 'A pessoa perde o acesso. As tarefas continuam, mas sem essa pessoa como responsável.',
+        confirmText: 'Remover',
+      });
+      if (!ok) return;
+      try { await api.deleteUser(user.id); toast('Pessoa removida.'); await refresh(); }
+      catch (err) { toast(err.message, 'error'); }
+    };
+  });
+
   view.querySelectorAll('[data-act="resend-invite"]').forEach((b) => {
     b.onclick = async () => {
       b.disabled = true;
@@ -955,6 +982,8 @@ function viewTeam(view) {
       catch (err) { toast(err.message, 'error'); }
     };
   });
+
+  if (!canRoles) return;
   view.querySelector('[data-act="new-position"]').onclick = () => openPositionForm(null, refresh);
   bindTaskRolesSection(view);
   view.querySelectorAll('[data-act="edit-position"]').forEach((b) => {
@@ -975,20 +1004,100 @@ function viewTeam(view) {
       catch (err) { toast(err.message, 'error'); }
     };
   });
-  view.querySelector('[data-act="new-user"]').onclick = () => openUserForm(null, refresh);
-  view.querySelectorAll('[data-act="edit-user"]').forEach((b) => {
-    b.onclick = () => openUserForm(state.users.find((u) => u.id === Number(b.dataset.id)), refresh);
-  });
-  view.querySelectorAll('[data-act="del-user"]').forEach((b) => {
+}
+
+/** Etiqueta do perfil; o Administrador vem destacado. */
+function profilePill(u) {
+  const name = u.profile_name || 'Sem perfil';
+  return `<span class="pill ${u.profile_key === 'admin' ? 'strong' : 'muted'}">${esc(name)}</span>`;
+}
+
+/* ------------------------------------------------------------ perfis e acesso */
+
+function viewProfiles(view) {
+  const { profiles, groups } = state.profiles;
+  const manage = can('perfis.gerenciar');
+  const people = (p) => state.team.filter((u) => u.profile_id === p.id);
+
+  view.innerHTML = `
+    <div class="page-head">
+      <div><h2>Perfis e acesso</h2><p>Quem pode fazer o quê, e quem manda em quem.</p></div>
+      <div class="spacer"></div>
+      ${manage ? '<button class="btn btn-primary" data-act="new-profile">+ Novo perfil</button>' : ''}
+    </div>
+
+    <div class="rules">
+      <div><strong>Hierarquia por nível.</strong> Quanto menor o número, mais alto o perfil. O Administrador fica no topo (nível 0).</div>
+      <div><strong>Cada um gerencia quem está abaixo.</strong> Só se edita, remove ou convida pessoas de nível maior que o seu, e só se dá perfis abaixo do seu.</div>
+      <div><strong>Ninguém dá o que não tem.</strong> Um perfil só pode receber direitos que quem o edita também tem. Ninguém muda o próprio perfil.</div>
+      <div><strong>Sempre existe um Administrador.</strong> Esse perfil tem todos os direitos, não pode ser alterado nem excluído, e o app não deixa rebaixar o último.</div>
+    </div>
+
+    <section class="home-section">
+      <div class="section-head"><div><h3>Hierarquia</h3><p class="section-sub">Do nível mais alto para o mais baixo. Seu perfil: <strong>${esc(state.user.profile_name)}</strong>.</p></div></div>
+      <div class="ladder">
+        ${profiles.map((p) => {
+          const members = people(p);
+          return `
+          <div class="ladder-step${p.id === state.user.profile_id ? ' mine' : ''}">
+            <div class="ladder-level" title="Nível ${p.level}">${p.level}</div>
+            <div class="ladder-body">
+              <div class="ladder-title">
+                <strong>${esc(p.name)}</strong>
+                ${p.key === 'admin' ? '<span class="pill strong">Topo · todos os direitos</span>' : ''}
+                ${p.key === 'member' ? '<span class="pill muted">Padrão de quem entra</span>' : ''}
+                ${p.id === state.user.profile_id ? '<span class="pill muted">seu perfil</span>' : ''}
+              </div>
+              <div class="ladder-meta">
+                ${p.permissions.length} de ${groups.flatMap((g) => g.items).length} direitos ·
+                ${members.length ? esc(members.map((u) => u.name.split(' ')[0]).join(', ')) : 'ninguém'}
+                ${p.pending_invites ? ` · ${p.pending_invites} convite(s) pendente(s)` : ''}
+              </div>
+            </div>
+            <div class="ladder-actions">
+              ${p.editable ? `
+                <button class="btn btn-sm" data-act="edit-profile" data-id="${p.id}">Editar</button>
+                ${p.is_system ? '' : `<button class="btn btn-sm btn-danger" data-act="del-profile" data-id="${p.id}">Excluir</button>`}`
+                : `<button class="btn btn-sm btn-ghost" data-act="view-profile" data-id="${p.id}">Ver direitos</button>`}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </section>
+
+    <section class="home-section">
+      <div class="section-head"><div><h3>Direitos por perfil</h3><p class="section-sub">Visão geral. Para mudar, use Editar no perfil. Editar e excluir o que a própria pessoa criou é sempre permitido.</p></div></div>
+      <div class="table-wrap"><table class="table matrix">
+        <thead><tr><th>Direito</th>${profiles.map((p) => `<th class="c">${esc(p.name)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${groups.map((g) => `
+            <tr class="matrix-group"><td colspan="${profiles.length + 1}">${esc(g.label)}</td></tr>
+            ${g.items.map((item) => `<tr>
+              <td>${esc(item.label)}</td>
+              ${profiles.map((p) => `<td class="c">${p.permissions.includes(item.key)
+                ? '<span class="yes" title="Tem">&#10003;</span>'
+                : '<span class="no" title="Não tem">—</span>'}</td>`).join('')}
+            </tr>`).join('')}`).join('')}
+        </tbody>
+      </table></div>
+    </section>`;
+
+  const find = (b) => profiles.find((p) => p.id === Number(b.dataset.id));
+  view.querySelector('[data-act="new-profile"]')?.addEventListener('click', () => openProfileEditor(null, refresh));
+  view.querySelectorAll('[data-act="edit-profile"]').forEach((b) => { b.onclick = () => openProfileEditor(find(b), refresh); });
+  view.querySelectorAll('[data-act="view-profile"]').forEach((b) => { b.onclick = () => openProfileEditor(find(b), refresh, { readOnly: true }); });
+  view.querySelectorAll('[data-act="del-profile"]').forEach((b) => {
     b.onclick = async () => {
-      const user = state.users.find((u) => u.id === Number(b.dataset.id));
+      const profile = find(b);
       const ok = await confirmDialog({
-        title: `Remover ${user.name}?`,
-        message: 'A pessoa perde o acesso. As tarefas continuam, mas sem essa pessoa como responsável.',
-        confirmText: 'Remover',
+        title: `Excluir o perfil ${profile.name}?`,
+        message: profile.members
+          ? `${profile.members} pessoa(s) usam esse perfil: mude-as para outro antes de excluir.`
+          : 'Ninguém usa esse perfil.',
+        confirmText: 'Excluir perfil',
       });
       if (!ok) return;
-      try { await api.deleteUser(user.id); toast('Pessoa removida.'); await refresh(); }
+      try { await api.deleteProfile(profile.id); toast('Perfil excluído.'); await refresh(); }
       catch (err) { toast(err.message, 'error'); }
     };
   });

@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { all, get, run } from '../db.js';
-import { createSession, destroySession, hashPassword, requireAuth, verifyPassword } from '../auth.js';
+import { createSession, destroySession, hashPassword, loadUser, requireAuth, verifyPassword } from '../auth.js';
 
 export const authRouter = Router();
 
-const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, color: u.color });
 
 async function countUsers() {
   return (await get('SELECT COUNT(*) AS n FROM users')).n;
@@ -24,7 +23,8 @@ authRouter.post('/setup', async (req, res) => {
   if (password.length < 6) return res.status(400).json({ error: 'A senha precisa ter ao menos 6 caracteres.' });
 
   const info = await run(
-    'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?) RETURNING id',
+    `INSERT INTO users (name, email, password_hash, role, profile_id)
+     VALUES (?, ?, ?, ?, (SELECT id FROM profiles WHERE key = 'admin')) RETURNING id`,
     name.trim(),
     email.trim(),
     hashPassword(password),
@@ -32,7 +32,7 @@ authRouter.post('/setup', async (req, res) => {
   );
   const user = await get('SELECT * FROM users WHERE id = ?', info.lastInsertRowid);
   await createSession(res, user.id);
-  res.status(201).json({ user: publicUser(user) });
+  res.status(201).json({ user: await loadUser(user.id) });
 });
 
 authRouter.post('/login', async (req, res) => {
@@ -42,7 +42,7 @@ authRouter.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
   }
   await createSession(res, user.id, { remember: req.body?.remember !== false });
-  res.json({ user: publicUser(user) });
+  res.json({ user: await loadUser(user.id) });
 });
 
 authRouter.post('/logout', async (req, res) => {
@@ -66,7 +66,7 @@ authRouter.patch('/me', requireAuth, async (req, res) => {
     return res.status(409).json({ error: 'Já existe uma conta com esse e-mail.' });
   }
   await run('UPDATE users SET name = ?, email = ?, color = ? WHERE id = ?', name, email, color || user.color, user.id);
-  res.json({ user: publicUser(await get('SELECT * FROM users WHERE id = ?', user.id)) });
+  res.json({ user: await loadUser(user.id) });
 });
 
 authRouter.post('/password', requireAuth, async (req, res) => {
@@ -83,7 +83,11 @@ authRouter.post('/password', requireAuth, async (req, res) => {
 /** Qualquer pessoa logada precisa da lista da equipe para eleger responsaveis. */
 authRouter.get('/team', requireAuth, async (_req, res) => {
   res.json(await all(`
-    SELECT u.id, u.name, u.email, u.role, u.color, u.position_id, p.name AS position_name
-      FROM users u LEFT JOIN positions p ON p.id = u.position_id
-     ORDER BY u.role, lower(u.name)`));
+    SELECT u.id, u.name, u.email, u.color, u.position_id, p.name AS position_name,
+           pr.id AS profile_id, pr.name AS profile_name, pr.key AS profile_key, COALESCE(pr.level, 2147483647) AS profile_level
+      FROM users u
+      LEFT JOIN positions p ON p.id = u.position_id
+      LEFT JOIN profiles pr ON pr.id = COALESCE(u.profile_id,
+      (SELECT id FROM profiles WHERE key = CASE WHEN u.role = 'admin' THEN 'admin' ELSE 'member' END))
+     ORDER BY profile_level, lower(u.name)`));
 });

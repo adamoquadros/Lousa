@@ -50,7 +50,14 @@ export function aiPanelHtml() {
     </div>`;
 }
 
-export async function bindAiPanel(body, subject, reload) {
+/**
+ * rights vem do perfil de quem esta logado:
+ *  - canUpload: anexar material (sem ele, a area de anexar some);
+ *  - canDeleteFile(f): remover aquele anexo (quem enviou, ou quem tem o direito);
+ *  - canGenerate: gerar com IA (sem ele, os botoes entregam o prompt para colar).
+ */
+export async function bindAiPanel(body, subject, reload, rights = {}) {
+  const { canUpload = true, canDeleteFile = () => true, canGenerate = true } = rights;
   const panel = body.querySelector('[data-ai-panel]');
   if (!panel) return;
 
@@ -59,6 +66,7 @@ export async function bindAiPanel(body, subject, reload) {
   const filesBox = panel.querySelector('[data-files]');
   const drop = panel.querySelector('[data-drop]');
   const input = panel.querySelector('[data-file-input]');
+  drop.hidden = !canUpload;
 
   const info = await status();
 
@@ -83,8 +91,8 @@ export async function bindAiPanel(body, subject, reload) {
           <a class="ai-file-name" href="${esc(api.attachmentUrl(f.id))}" target="_blank" rel="noopener"
              title="${esc(f.filename)}">${esc(f.filename)}</a>
           <span class="ai-file-size muted-text">${humanSize(f.size)}</span>
-          <button class="btn btn-ghost btn-sm" data-act="del-file" data-id="${f.id}"
-                  title="Remover anexo">&times;</button>
+          ${canDeleteFile(f) ? `<button class="btn btn-ghost btn-sm" data-act="del-file" data-id="${f.id}"
+                  title="Remover anexo">&times;</button>` : ''}
         </div>`).join('')}`;
 
     filesBox.querySelectorAll('[data-act="del-file"]').forEach((b) => {
@@ -152,9 +160,12 @@ export async function bindAiPanel(body, subject, reload) {
     return;
   }
 
-  state.textContent = info.enabled
+  const auto = info.enabled && canGenerate;
+  state.textContent = auto
     ? `automático via ${info.provider} (${info.model})`
-    : 'sem chave configurada: gera o prompt para você colar';
+    : info.enabled
+      ? 'seu perfil não gera com IA: os botões entregam o prompt para colar'
+      : 'sem chave configurada: gera o prompt para você colar';
 
   actions.innerHTML = info.presets.map((p) => `
     <button class="btn btn-sm ai-btn" data-preset="${esc(p.id)}" title="${esc(p.hint)}">
@@ -162,7 +173,7 @@ export async function bindAiPanel(body, subject, reload) {
     </button>`).join('');
 
   actions.querySelectorAll('.ai-btn').forEach((btn) => {
-    btn.onclick = () => (info.enabled
+    btn.onclick = () => (auto
       ? runGenerate(btn, subject, reload)
       : showPrompt(subject, btn.dataset.preset));
   });

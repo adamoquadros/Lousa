@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { ALL_PERMISSIONS, MEMBER_DEFAULTS } from './permissions.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -232,6 +233,23 @@ CREATE TABLE IF NOT EXISTS invites (
   accepted_at  TIMESTAMPTZ
 );
 
+-- Perfis de acesso: nome, nivel na hierarquia (0 = topo) e direitos.
+-- key marca os dois perfis do sistema: 'admin' (tem tudo, nao pode ser
+-- apagado nem rebaixado) e 'member' (padrao de quem entra, editavel).
+CREATE TABLE IF NOT EXISTS profiles (
+  id          SERIAL PRIMARY KEY,
+  key         TEXT UNIQUE,
+  name        CITEXT  NOT NULL UNIQUE,
+  level       INTEGER NOT NULL CHECK (level >= 0),
+  permissions TEXT[]  NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- users.role continua existindo (admin/member) e e mantido em sincronia,
+-- para versoes antigas do app que ainda leem so ele.
+ALTER TABLE users   ADD COLUMN IF NOT EXISTS profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE invites ADD COLUMN IF NOT EXISTS profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL;
+
 -- Funcoes numa tarefa (Responsavel, Conferente, Quem envia...). Diferente
 -- dos cargos (positions), que sao da pessoa na equipe: a funcao e da pessoa
 -- naquela tarefa. As padrao entram so quando a tabela nasce (ver migrate).
@@ -276,6 +294,21 @@ export async function migrate() {
   if (!pool) throw new DbNotConfigured();
   const { rows } = await pool.query("SELECT to_regclass('task_roles') IS NULL AS fresh");
   await pool.query(SCHEMA);
+  // Perfis do sistema (idempotente) e encaixe de quem ainda nao tem perfil -
+  // contas antigas ou criadas por uma versao que so conhece role.
+  await pool.query(
+    `INSERT INTO profiles (key, name, level, permissions)
+     VALUES ('admin', 'Administrador', 0, $1), ('member', 'Membro', 10, $2)
+     ON CONFLICT DO NOTHING`,
+    [ALL_PERMISSIONS, MEMBER_DEFAULTS],
+  );
+  for (const table of ['users', 'invites']) {
+    await pool.query(`
+      UPDATE ${table} SET profile_id = (SELECT id FROM profiles
+        WHERE key = CASE WHEN ${table}.role = 'admin' THEN 'admin' ELSE 'member' END)
+       WHERE profile_id IS NULL`);
+  }
+
   // Funcoes padrao so na criacao da tabela: se a turma apagar uma, ela nao volta.
   if (rows[0].fresh) {
     await pool.query(

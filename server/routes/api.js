@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { TODAY, all, get, run, tx } from '../db.js';
-import { canManage, requireAdmin, requireAuth } from '../auth.js';
+import { canManage, requireAuth, requirePermission } from '../auth.js';
 import { removeStoredFiles, storedFilesOf } from '../attachments.js';
 
 export const apiRouter = Router();
@@ -8,7 +8,7 @@ apiRouter.use(requireAuth);
 
 const trim = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const notFound = (res, message = 'Registro não encontrado.') => res.status(404).json({ error: message });
-const denied = (res) => res.status(403).json({ error: 'Somente quem criou o item ou um administrador pode removê-lo.' });
+const denied = (res) => res.status(403).json({ error: 'Somente quem criou o item ou um perfil com essa permissão pode fazer isso.' });
 
 /* ------------------------------------------------------------------ semestres */
 
@@ -19,7 +19,7 @@ apiRouter.get('/semesters', async (_req, res) => {
      ORDER BY s.is_current DESC, s.name DESC`));
 });
 
-apiRouter.post('/semesters', async (req, res) => {
+apiRouter.post('/semesters', requirePermission('semestres.criar'), async (req, res) => {
   const name = trim(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Informe o nome do semestre (ex.: 2026.1).' });
   if (await get('SELECT id FROM semesters WHERE name = ?', name)) {
@@ -36,7 +36,7 @@ apiRouter.post('/semesters', async (req, res) => {
   res.status(201).json(await get('SELECT * FROM semesters WHERE id = ?', id));
 });
 
-apiRouter.patch('/semesters/:id', requireAdmin, async (req, res) => {
+apiRouter.patch('/semesters/:id', requirePermission('semestres.editar'), async (req, res) => {
   const id = Number(req.params.id);
   const current = await get('SELECT * FROM semesters WHERE id = ?', id);
   if (!current) return notFound(res, 'Semestre não encontrado.');
@@ -58,7 +58,7 @@ apiRouter.patch('/semesters/:id', requireAdmin, async (req, res) => {
   res.json(await get('SELECT * FROM semesters WHERE id = ?', id));
 });
 
-apiRouter.delete('/semesters/:id', requireAdmin, async (req, res) => {
+apiRouter.delete('/semesters/:id', requirePermission('semestres.editar'), async (req, res) => {
   const id = Number(req.params.id);
   const subjects = await all('SELECT id FROM subjects WHERE semester_id = ?', id);
   const files = await storedFilesOf(subjects.map((s) => s.id));
@@ -145,7 +145,7 @@ apiRouter.get('/subjects/:id', async (req, res) => {
   res.json(subject);
 });
 
-apiRouter.post('/subjects', async (req, res) => {
+apiRouter.post('/subjects', requirePermission('materias.editar'), async (req, res) => {
   const semesterId = Number(req.body?.semester_id);
   if (!semesterId || !await get('SELECT id FROM semesters WHERE id = ?', semesterId)) {
     return res.status(400).json({ error: 'Semestre inválido.' });
@@ -164,7 +164,7 @@ apiRouter.post('/subjects', async (req, res) => {
   res.status(201).json(await get('SELECT * FROM subjects WHERE id = ?', id));
 });
 
-apiRouter.patch('/subjects/:id', async (req, res) => {
+apiRouter.patch('/subjects/:id', requirePermission('materias.editar'), async (req, res) => {
   const id = Number(req.params.id);
   const current = await get('SELECT * FROM subjects WHERE id = ?', id);
   if (!current) return notFound(res, 'Matéria não encontrada.');
@@ -182,7 +182,7 @@ apiRouter.patch('/subjects/:id', async (req, res) => {
 apiRouter.delete('/subjects/:id', async (req, res) => {
   const subject = await get('SELECT * FROM subjects WHERE id = ?', Number(req.params.id));
   if (!subject) return notFound(res, 'Matéria não encontrada.');
-  if (!canManage(req.user, subject)) return denied(res);
+  if (!canManage(req.user, subject, 'materias.excluir')) return denied(res);
   const files = await storedFilesOf([subject.id]);
   await run('DELETE FROM subjects WHERE id = ?', subject.id);
   await removeStoredFiles(files);
@@ -260,7 +260,7 @@ apiRouter.get('/tasks', async (req, res) => {
   res.json(await withAssignees(tasks));
 });
 
-apiRouter.post('/tasks', async (req, res) => {
+apiRouter.post('/tasks', requirePermission('tarefas.editar'), async (req, res) => {
   const subjectId = Number(req.body?.subject_id);
   if (!subjectId || !await get('SELECT id FROM subjects WHERE id = ?', subjectId)) {
     return res.status(400).json({ error: 'Matéria inválida.' });
@@ -281,7 +281,7 @@ apiRouter.post('/tasks', async (req, res) => {
   res.status(201).json((await withAssignees([await get('SELECT * FROM tasks WHERE id = ?', id)]))[0]);
 });
 
-apiRouter.patch('/tasks/:id', async (req, res) => {
+apiRouter.patch('/tasks/:id', requirePermission('tarefas.editar'), async (req, res) => {
   const id = Number(req.params.id);
   const current = await get('SELECT * FROM tasks WHERE id = ?', id);
   if (!current) return notFound(res, 'Tarefa não encontrada.');
@@ -310,14 +310,14 @@ apiRouter.patch('/tasks/:id', async (req, res) => {
 apiRouter.delete('/tasks/:id', async (req, res) => {
   const task = await get('SELECT * FROM tasks WHERE id = ?', Number(req.params.id));
   if (!task) return notFound(res, 'Tarefa não encontrada.');
-  if (!canManage(req.user, task)) return denied(res);
+  if (!canManage(req.user, task, 'tarefas.excluir')) return denied(res);
   await run('DELETE FROM tasks WHERE id = ?', task.id);
   res.json({ ok: true });
 });
 
 /* -------------------------------------------------------------------- resumos */
 
-apiRouter.post('/notes', async (req, res) => {
+apiRouter.post('/notes', requirePermission('resumos.editar'), async (req, res) => {
   const subjectId = Number(req.body?.subject_id);
   if (!subjectId || !await get('SELECT id FROM subjects WHERE id = ?', subjectId)) {
     return res.status(400).json({ error: 'Matéria inválida.' });
@@ -331,10 +331,10 @@ apiRouter.post('/notes', async (req, res) => {
   res.status(201).json(await get('SELECT * FROM notes WHERE id = ?', info.lastInsertRowid));
 });
 
-apiRouter.patch('/notes/:id', async (req, res) => {
+apiRouter.patch('/notes/:id', requirePermission('resumos.editar'), async (req, res) => {
   const note = await get('SELECT * FROM notes WHERE id = ?', Number(req.params.id));
   if (!note) return notFound(res, 'Resumo não encontrado.');
-  if (!canManage(req.user, note)) return denied(res);
+  if (!canManage(req.user, note, 'resumos.excluir')) return denied(res);
   await run(
     'UPDATE notes SET title = ?, content = ?, updated_at = now() WHERE id = ?',
     trim(req.body?.title) ?? note.title,
@@ -347,7 +347,7 @@ apiRouter.patch('/notes/:id', async (req, res) => {
 apiRouter.delete('/notes/:id', async (req, res) => {
   const note = await get('SELECT * FROM notes WHERE id = ?', Number(req.params.id));
   if (!note) return notFound(res, 'Resumo não encontrado.');
-  if (!canManage(req.user, note)) return denied(res);
+  if (!canManage(req.user, note, 'resumos.excluir')) return denied(res);
   await run('DELETE FROM notes WHERE id = ?', note.id);
   res.json({ ok: true });
 });

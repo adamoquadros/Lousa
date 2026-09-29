@@ -60,19 +60,27 @@ vercel.json         rotas da Vercel (/api e o CSS de tokens vão para a função
 
 ## Perfis de acesso
 
-| Ação                                                        | Admin | Membro |
-| ----------------------------------------------------------- | :---: | :----: |
-| Criar semestre                                               |   ✅  |   ✅   |
-| Editar / excluir semestre                                    |   ✅  |   —    |
-| Cadastrar e editar matérias, professores e dias de aula      |   ✅  |   ✅   |
-| Criar e editar tarefas, prazos e responsáveis                |   ✅  |   ✅   |
-| Criar resumos                                                |   ✅  |   ✅   |
-| Excluir matéria, tarefa ou resumo                            |   ✅  | só o que criou |
-| Trocar imagem do cartão e fundo do modal da matéria          |   ✅  |   ✅   |
-| Gerenciar contas da equipe, criar cargos e atribuí-los       |   ✅  |   —    |
+Os perfis são editáveis em **Perfis e acesso** (menu lateral). Cada perfil tem um **nível** na
+hierarquia (quanto menor, mais alto) e uma lista de **direitos**:
 
-A ideia é que o dia a dia (cadastrar, marcar prazo, eleger responsável, concluir tarefa) seja
-livre para os dois perfis; o que apaga trabalho dos outros fica com o admin.
+| Área | Direitos |
+| --- | --- |
+| Semestres | criar · editar e excluir |
+| Matérias | criar e editar (inclusive imagens) · excluir as de outras pessoas |
+| Tarefas | criar e editar, prazos e responsáveis · excluir as de outras pessoas |
+| Resumos e material | criar resumos e anexar · editar/excluir os de outras pessoas · gerar com IA |
+| Equipe | convidar · criar, editar e remover contas · gerenciar cargos e funções · gerenciar perfis |
+
+Regras da hierarquia (o servidor confere todas):
+
+- Quem gerencia contas, convites ou perfis só mexe no que está **abaixo** do seu nível, e só
+  concede perfis abaixo do seu.
+- Ninguém concede um direito que o próprio perfil não tem, e ninguém muda o próprio perfil.
+- O perfil **Administrador** (nível 0) tem todos os direitos, não pode ser alterado nem excluído, e o
+  app não deixa rebaixar o último administrador. **Membro** (nível 10) é o padrão de quem entra.
+- Editar e excluir o que a própria pessoa criou é sempre permitido.
+
+A coluna antiga `users.role` (admin/member) continua sendo preenchida, por compatibilidade.
 
 ## Telas
 

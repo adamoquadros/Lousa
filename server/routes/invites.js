@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { createHash, randomBytes } from 'node:crypto';
 import { all, get, run, tx } from '../db.js';
-import { createSession, hashPassword, requireAdmin } from '../auth.js';
+import { createSession, hashPassword, loadUser, outranks, requirePermission } from '../auth.js';
+import { grantableProfile, roleFor } from './users.js';
+
+const requireInvite = requirePermission('equipe.convidar');
 import { isMailEnabled, sendInviteEmail } from '../mailer.js';
 
 /**
@@ -15,7 +18,6 @@ const INVITE_DAYS = 7;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const hashToken = (token) => createHash('sha256').update(token).digest('hex');
-const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, color: u.color });
 
 /** Base do link: APP_URL do .env ou, sem ela, o endereco que o admin esta usando. */
 function baseUrl(req) {
@@ -32,9 +34,13 @@ function isLocalOnly(url) {
 
 const SELECT = `
   SELECT i.id, i.email, i.role, i.position_id, p.name AS position_name,
+         pr.id AS profile_id, pr.name AS profile_name, pr.key AS profile_key,
+         COALESCE(pr.level, 2147483647) AS profile_level,
          u.name AS invited_by_name, i.created_at, i.expires_at, i.accepted_at
     FROM invites i
     LEFT JOIN positions p ON p.id = i.position_id
+    LEFT JOIN profiles pr ON pr.id = COALESCE(i.profile_id,
+      (SELECT id FROM profiles WHERE key = CASE WHEN i.role = 'admin' THEN 'admin' ELSE 'member' END))
     LEFT JOIN users u ON u.id = i.invited_by`;
 
 const shape = (i) => ({ ...i, expired: new Date(i.expires_at) <= new Date() });
@@ -73,21 +79,23 @@ async function deliver(req, inviteId) {
 
 /* ------------------------------------------------------------ admin */
 
-invitesRouter.get('/', requireAdmin, async (req, res) => {
+invitesRouter.get('/', requireInvite, async (req, res) => {
   res.json({
     ...settings(req),
     invites: (await all(`${SELECT} WHERE i.accepted_at IS NULL ORDER BY i.created_at DESC`)).map(shape),
   });
 });
 
-invitesRouter.post('/', requireAdmin, async (req, res) => {
+invitesRouter.post('/', requireInvite, async (req, res) => {
   const email = String(req.body?.email ?? '').trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Informe um e-mail válido.' });
   if (await get('SELECT id FROM users WHERE email = ?', email)) {
     return res.status(409).json({ error: 'Já existe uma conta com esse e-mail.' });
   }
-  const role = req.body?.role || 'member';
-  if (!['admin', 'member'].includes(role)) return res.status(400).json({ error: 'Perfil inválido.' });
+  // Sem perfil escolhido, entra como Membro - desde que quem convida esteja acima dele.
+  const member = await get("SELECT id FROM profiles WHERE key = 'member'");
+  const grant = await grantableProfile(req.user, req.body?.profile_id || member?.id);
+  if (grant.error) return res.status(403).json({ error: grant.error });
   const rawPosition = req.body?.position_id;
   const positionId = rawPosition === null || rawPosition === undefined || rawPosition === '' ? null : Number(rawPosition);
   if (positionId !== null && !await get('SELECT id FROM positions WHERE id = ?', positionId)) {
@@ -99,9 +107,9 @@ invitesRouter.post('/', requireAdmin, async (req, res) => {
   const id = await tx(async () => {
     await run('DELETE FROM invites WHERE email = ? AND accepted_at IS NULL', email);
     const info = await run(
-      `INSERT INTO invites (email, token_hash, role, position_id, invited_by, expires_at)
-       VALUES (?, ?, ?, ?, ?, now()) RETURNING id`,
-      email, `pendente-${randomBytes(8).toString('hex')}`, role, positionId, req.user.id,
+      `INSERT INTO invites (email, token_hash, role, profile_id, position_id, invited_by, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, now()) RETURNING id`,
+      email, `pendente-${randomBytes(8).toString('hex')}`, roleFor(grant.profile), grant.profile.id, positionId, req.user.id,
     );
     return info.lastInsertRowid;
   });
@@ -110,13 +118,19 @@ invitesRouter.post('/', requireAdmin, async (req, res) => {
 });
 
 /** Gera um link novo (o antigo deixa de valer) e reenvia. */
-invitesRouter.post('/:id/resend', requireAdmin, async (req, res) => {
-  const invite = await get('SELECT * FROM invites WHERE id = ? AND accepted_at IS NULL', Number(req.params.id));
+/** Convite para um perfil no nivel de quem pede (ou acima) nao e dele para mexer. */
+const OUT_OF_REACH = 'Esse convite é para um perfil no seu nível ou acima dele na hierarquia.';
+
+invitesRouter.post('/:id/resend', requireInvite, async (req, res) => {
+  const invite = await get(`${SELECT} WHERE i.id = ? AND i.accepted_at IS NULL`, Number(req.params.id));
   if (!invite) return res.status(404).json({ error: 'Convite não encontrado.' });
+  if (!outranks(req.user, invite.profile_level)) return res.status(403).json({ error: OUT_OF_REACH });
   res.json(await deliver(req, invite.id));
 });
 
-invitesRouter.delete('/:id', requireAdmin, async (req, res) => {
+invitesRouter.delete('/:id', requireInvite, async (req, res) => {
+  const invite = await get(`${SELECT} WHERE i.id = ? AND i.accepted_at IS NULL`, Number(req.params.id));
+  if (invite && !outranks(req.user, invite.profile_level)) return res.status(403).json({ error: OUT_OF_REACH });
   const r = await run('DELETE FROM invites WHERE id = ? AND accepted_at IS NULL', Number(req.params.id));
   if (!r.changes) return res.status(404).json({ error: 'Convite não encontrado.' });
   res.json({ ok: true });
@@ -140,6 +154,7 @@ invitesRouter.get('/token/:token', async (req, res) => {
     email: invite.email,
     invited_by_name: invite.invited_by_name,
     position_name: invite.position_name,
+    profile_name: invite.profile_name,
     expires_at: invite.expires_at,
   });
 });
@@ -160,13 +175,13 @@ invitesRouter.post('/token/:token/accept', async (req, res) => {
     const claimed = await run('UPDATE invites SET accepted_at = now() WHERE id = ? AND accepted_at IS NULL', invite.id);
     if (!claimed.changes) return null;
     const info = await run(
-      'INSERT INTO users (name, email, password_hash, role, position_id) VALUES (?, ?, ?, ?, ?) RETURNING id',
-      name, invite.email, hashPassword(password), invite.role, invite.position_id,
+      'INSERT INTO users (name, email, password_hash, role, profile_id, position_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
+      name, invite.email, hashPassword(password), roleFor({ key: invite.profile_key }), invite.profile_id, invite.position_id,
     );
     return info.lastInsertRowid;
   });
   if (!userId) return res.status(404).json({ error: INVALID });
 
   await createSession(res, userId);
-  res.status(201).json({ user: publicUser(await get('SELECT * FROM users WHERE id = ?', userId)) });
+  res.status(201).json({ user: await loadUser(userId) });
 });

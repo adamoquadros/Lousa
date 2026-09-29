@@ -17,6 +17,7 @@ import { subjectImagesRouter } from './routes/subject-images.js';
 import { positionsRouter } from './routes/positions.js';
 import { invitesRouter } from './routes/invites.js';
 import { taskRolesRouter } from './routes/task-roles.js';
+import { profilesRouter } from './routes/profiles.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -38,6 +39,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/positions', positionsRouter);
 app.use('/api/invites', invitesRouter);
 app.use('/api/task-roles', taskRolesRouter);
+app.use('/api/profiles', profilesRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api', attachmentsRouter);
 app.use('/api', subjectImagesRouter);

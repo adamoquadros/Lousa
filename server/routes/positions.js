@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { all, get, run } from '../db.js';
-import { requireAdmin, requireAuth } from '../auth.js';
+import { requireAuth, requirePermission } from '../auth.js';
+
+const requireCargos = requirePermission('equipe.cargos');
 
 /**
  * Cargos da equipe (Lider, Revisor, Apresentador...). E so um rotulo: quem
@@ -19,7 +21,7 @@ const withCount = async (where = '', ...params) => all(`
 
 positionsRouter.get('/', async (_req, res) => res.json(await withCount()));
 
-positionsRouter.post('/', requireAdmin, async (req, res) => {
+positionsRouter.post('/', requireCargos, async (req, res) => {
   const name = cleanName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Informe o nome do cargo.' });
   if (await get('SELECT id FROM positions WHERE name = ?', name)) {
@@ -29,7 +31,7 @@ positionsRouter.post('/', requireAdmin, async (req, res) => {
   res.status(201).json((await withCount('WHERE p.id = ?', info.lastInsertRowid))[0]);
 });
 
-positionsRouter.patch('/:id', requireAdmin, async (req, res) => {
+positionsRouter.patch('/:id', requireCargos, async (req, res) => {
   const id = Number(req.params.id);
   if (!await get('SELECT id FROM positions WHERE id = ?', id)) return res.status(404).json({ error: 'Cargo não encontrado.' });
   const name = cleanName(req.body?.name);
@@ -42,7 +44,7 @@ positionsRouter.patch('/:id', requireAdmin, async (req, res) => {
 });
 
 /** Quem tinha o cargo fica sem cargo (ON DELETE SET NULL); a conta nao muda. */
-positionsRouter.delete('/:id', requireAdmin, async (req, res) => {
+positionsRouter.delete('/:id', requireCargos, async (req, res) => {
   const r = await run('DELETE FROM positions WHERE id = ?', Number(req.params.id));
   if (!r.changes) return res.status(404).json({ error: 'Cargo não encontrado.' });
   res.json({ ok: true });

@@ -10,7 +10,22 @@ let ctx = { state: null, reload: async () => {} };
 export function initModals(next) { ctx = next; }
 
 const me = () => ctx.state.user;
-const canManage = (record) => me()?.role === 'admin' || record?.created_by === me()?.id;
+/** O perfil de quem esta logado tem o direito? (O servidor confere de novo.) */
+const can = (permission) => Boolean(me()?.permissions?.includes(permission));
+/** Mexer num item: quem criou sempre pode; os outros precisam do direito "de outras pessoas". */
+const canManage = (record, permission) => record?.created_by === me()?.id || can(permission);
+
+/** Perfis que eu posso dar: abaixo do meu nivel (o Administrador da qualquer um). */
+const grantableProfiles = () => ctx.state.profiles.profiles
+  .filter((p) => me().is_admin || me().level < p.level);
+
+/** <option>s de perfil. Sem escolha previa, sugere Membro (se eu puder dar). */
+function profileOptions(selectedId) {
+  const list = grantableProfiles();
+  const fallback = list.find((p) => p.key === 'member') ?? list[list.length - 1];
+  const chosen = selectedId ?? fallback?.id;
+  return list.map((p) => `<option value="${p.id}"${p.id === chosen ? ' selected' : ''}>${esc(p.name)} (nível ${p.level})</option>`).join('');
+}
 
 const field = (label, inner, hint = '') =>
   `<div class="field"><label>${esc(label)}</label>${inner}${hint ? `<span class="hint">${esc(hint)}</span>` : ''}</div>`;
@@ -56,7 +71,7 @@ export async function openSubjectModal(subjectId, initialTab = 'info') {
           <p data-slot="subtitle"></p>
         </div>
         <div class="spacer"></div>
-        <button class="btn btn-sm" data-act="edit-subject" title="Editar informações da matéria">Editar</button>
+        ${can('materias.editar') ? '<button class="btn btn-sm" data-act="edit-subject" title="Editar informações da matéria">Editar</button>' : ''}
         <button class="btn btn-ghost btn-sm" data-close title="Fechar">&times;</button>
       </div>
       <div class="tabs">
@@ -93,7 +108,7 @@ export async function openSubjectModal(subjectId, initialTab = 'info') {
       root.querySelectorAll('.tab').forEach((b) => {
         b.onclick = () => { tab = b.dataset.tab; paint(); };
       });
-      root.querySelector('[data-act="edit-subject"]').onclick = () => openSubjectForm(subject, reload);
+      root.querySelector('[data-act="edit-subject"]')?.addEventListener('click', () => openSubjectForm(subject, reload));
       paint();
     },
   });
@@ -117,18 +132,18 @@ const TAB_RENDERERS = {
         <div class="info-item"><div class="k">Observações</div></div>
         <div class="info-text">${esc(s.observations)}</div></div>` : ''}
       <div class="action-row">
-        <button class="btn" data-act="edit">Editar matéria</button>
-        <button class="btn" data-act="new-task">Nova tarefa</button>
-        <button class="btn" data-act="new-note">Novo resumo</button>
+        ${can('materias.editar') ? '<button class="btn" data-act="edit">Editar matéria</button>' : ''}
+        ${can('tarefas.editar') ? '<button class="btn" data-act="new-task">Nova tarefa</button>' : ''}
+        ${can('resumos.editar') ? '<button class="btn" data-act="new-note">Novo resumo</button>' : ''}
         <div class="spacer"></div>
-        ${canManage(s) ? '<button class="btn btn-danger" data-act="delete">Excluir</button>' : ''}
+        ${canManage(s, 'materias.excluir') ? '<button class="btn btn-danger" data-act="delete">Excluir</button>' : ''}
       </div>`;
   },
 
   tasks: (s) => `
     <div class="section-head">
       <strong>${s.tasks.length} tarefa(s)</strong>
-      <button class="btn btn-primary btn-sm" data-act="new-task">+ Nova tarefa</button>
+      ${can('tarefas.editar') ? '<button class="btn btn-primary btn-sm" data-act="new-task">+ Nova tarefa</button>' : ''}
     </div>
     ${s.tasks.length ? `<div class="list">${s.tasks.map(taskRow).join('')}</div>`
       : '<div class="empty"><strong>Nenhuma tarefa ainda</strong>Cadastre a primeira com prazo e responsáveis.</div>'}`,
@@ -136,7 +151,7 @@ const TAB_RENDERERS = {
   notes: (s) => `
     <div class="section-head">
       <strong>${s.notes.length} resumo(s)</strong>
-      <button class="btn btn-primary btn-sm" data-act="new-note">+ Novo resumo</button>
+      ${can('resumos.editar') ? '<button class="btn btn-primary btn-sm" data-act="new-note">+ Novo resumo</button>' : ''}
     </div>
     ${aiPanelHtml()}
     ${s.notes.length ? s.notes.map((n) => `
@@ -146,7 +161,7 @@ const TAB_RENDERERS = {
         <div class="note-body">${esc(n.content) || '<span class="muted-text">Sem conteúdo.</span>'}</div>
         <div class="note-actions">
           <button class="btn btn-sm" data-act="toggle-note" hidden>Ver mais</button>
-          ${canManage(n) ? `
+          ${can('resumos.editar') && canManage(n, 'resumos.excluir') ? `
             <button class="btn btn-sm" data-act="edit-note" data-id="${n.id}">Editar</button>
             <button class="btn btn-sm btn-danger" data-act="del-note" data-id="${n.id}">Excluir</button>` : ''}
         </div>
@@ -177,9 +192,9 @@ const TAB_RENDERERS = {
 
 const TAB_BINDERS = {
   info: (body, subject, reload, close) => {
-    body.querySelector('[data-act="edit"]').onclick = () => openSubjectForm(subject, reload);
-    body.querySelector('[data-act="new-task"]').onclick = () => openTaskForm({ subject_id: subject.id }, reload);
-    body.querySelector('[data-act="new-note"]').onclick = () => openNoteForm({ subject_id: subject.id }, reload);
+    body.querySelector('[data-act="edit"]')?.addEventListener('click', () => openSubjectForm(subject, reload));
+    body.querySelector('[data-act="new-task"]')?.addEventListener('click', () => openTaskForm({ subject_id: subject.id }, reload));
+    body.querySelector('[data-act="new-note"]')?.addEventListener('click', () => openNoteForm({ subject_id: subject.id }, reload));
     const del = body.querySelector('[data-act="delete"]');
     if (del) {
       del.onclick = async () => {
@@ -200,13 +215,17 @@ const TAB_BINDERS = {
   },
 
   tasks: (body, subject, reload) => {
-    body.querySelector('[data-act="new-task"]').onclick = () => openTaskForm({ subject_id: subject.id }, reload);
+    body.querySelector('[data-act="new-task"]')?.addEventListener('click', () => openTaskForm({ subject_id: subject.id }, reload));
     bindTaskRows(body, subject.tasks, reload);
   },
 
   notes: (body, subject, reload) => {
-    body.querySelector('[data-act="new-note"]').onclick = () => openNoteForm({ subject_id: subject.id }, reload);
-    bindAiPanel(body, subject, reload);
+    body.querySelector('[data-act="new-note"]')?.addEventListener('click', () => openNoteForm({ subject_id: subject.id }, reload));
+    bindAiPanel(body, subject, reload, {
+      canUpload: can('resumos.editar'),
+      canDeleteFile: (f) => canManage(f, 'resumos.excluir'),
+      canGenerate: can('ia.gerar'),
+    });
 
     // O cartao fechado tem altura fixa; so mostra "Ver mais" quando ha texto escondido.
     body.querySelectorAll('.note-card').forEach((card) => {
@@ -250,7 +269,7 @@ export function taskRow(task, showSubject = false) {
   const color = task.subject_color ? ` style="--row-color:${esc(task.subject_color)}"` : '';
   return `
     <div class="task${done ? ' done' : ''}" data-task="${task.id}"${color}>
-      <button class="task-check${done ? ' on' : ''}" data-act="toggle" title="Marcar como concluída">&#10003;</button>
+      <button class="task-check${done ? ' on' : ''}" data-act="toggle" title="Marcar como concluída"${can('tarefas.editar') ? '' : ' disabled'}>&#10003;</button>
       <div class="task-body">
         <div class="task-title">${esc(task.title)}</div>
         <div class="task-desc">${esc(task.description ?? '')}</div>
@@ -267,8 +286,8 @@ export function taskRow(task, showSubject = false) {
         </div>
       </div>
       <div class="task-actions">
-        <button class="btn btn-ghost btn-sm" data-act="edit" title="Editar">Editar</button>
-        ${canManage(task) ? '<button class="btn btn-ghost btn-sm btn-danger" data-act="del" title="Excluir">&times;</button>' : ''}
+        ${can('tarefas.editar') ? '<button class="btn btn-ghost btn-sm" data-act="edit" title="Editar">Editar</button>' : ''}
+        ${canManage(task, 'tarefas.excluir') ? '<button class="btn btn-ghost btn-sm btn-danger" data-act="del" title="Excluir">&times;</button>' : ''}
       </div>
     </div>`;
 }
@@ -284,7 +303,7 @@ export function bindTaskRows(root, tasks, reload) {
       try { await api.updateTask(id, { status }); await reload(); }
       catch (err) { toast(err.message, 'error'); }
     };
-    row.querySelector('[data-act="edit"]').onclick = () => openTaskForm(task, reload);
+    row.querySelector('[data-act="edit"]')?.addEventListener('click', () => openTaskForm(task, reload));
     row.querySelector('[data-act="del"]')?.addEventListener('click', async () => {
       const ok = await confirmDialog({ title: 'Excluir tarefa?', message: esc(task.title), confirmText: 'Excluir' });
       if (!ok) return;
@@ -707,7 +726,7 @@ export function openSemesterForm(semester, onSaved) {
         </label>
       </div>
       <div class="modal-foot">
-        ${editing && me().role === 'admin' ? '<button class="btn btn-danger" data-act="delete">Excluir</button>' : ''}
+        ${editing && can('semestres.editar') ? '<button class="btn btn-danger" data-act="delete">Excluir</button>' : ''}
         <div class="spacer"></div>
         <button class="btn" data-close>Cancelar</button>
         <button class="btn btn-primary" data-act="save">${editing ? 'Salvar' : 'Criar semestre'}</button>
@@ -773,11 +792,14 @@ export function openUserForm(user, onSaved) {
             <select name="position_id">
               <option value="">Sem cargo</option>
               ${ctx.state.positions.map((p) => `<option value="${p.id}"${p.id === user?.position_id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}
-              <option value="${NEW_POSITION}">+ Criar novo cargo...</option>
+              ${can('equipe.cargos') ? `<option value="${NEW_POSITION}">+ Criar novo cargo...</option>` : ''}
             </select>
             <input type="text" name="new_position" placeholder="Nome do novo cargo" maxlength="60" hidden>`,
             'O cargo é só um rótulo; o que a pessoa pode fazer vem do perfil.')}
-          ${field('Perfil', `<select name="role">${options({ member: 'Membro', admin: 'Administrador' }, user?.role || 'member')}</select>`)}
+          ${field('Perfil', user?.id === me().id
+            ? `<select name="profile_id" disabled><option>${esc(user.profile_name)}</option></select>`
+            : `<select name="profile_id">${profileOptions(user?.profile_id)}</select>`,
+            user?.id === me().id ? 'Ninguém muda o próprio perfil.' : 'Só aparecem perfis abaixo do seu na hierarquia.')}
         </div>
         ${field('Cor', colorPicker(user?.color))}
         ${field(editing ? 'Nova senha' : 'Senha *', '<input type="password" name="password" autocomplete="new-password">',
@@ -800,8 +822,8 @@ export function openUserForm(user, onSaved) {
         const payload = {
           name: val(root, 'name'),
           email: val(root, 'email'),
-          role: val(root, 'role'),
           color: root.querySelector('input[name="color"]').value,
+          ...(user?.id === me().id ? {} : { profile_id: Number(val(root, 'profile_id')) || null }),
           position_id: positionSelect.value === NEW_POSITION ? null : (Number(positionSelect.value) || null),
         };
         const password = root.querySelector('[name="password"]').value;
@@ -933,7 +955,7 @@ export function openInviteForm(onSent) {
         <div class="field-row">
           ${field('Cargo', `<select name="position_id"><option value="">Sem cargo</option>
             ${ctx.state.positions.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>`)}
-          ${field('Perfil', `<select name="role">${options({ member: 'Membro', admin: 'Administrador' }, 'member')}</select>`)}
+          ${field('Perfil', `<select name="profile_id">${profileOptions()}</select>`)}
         </div>
       </div>
       <div class="modal-foot">
@@ -951,7 +973,7 @@ export function openInviteForm(onSent) {
         try {
           const result = await withBusy(e.currentTarget, () => api.createInvite({
             email,
-            role: val(root, 'role'),
+            profile_id: Number(val(root, 'profile_id')) || null,
             position_id: Number(val(root, 'position_id')) || null,
           }));
           close();
@@ -1019,6 +1041,89 @@ export function showInviteResult(result) {
       root.querySelector('[data-act="copy"]').onclick = async () => {
         toast(await copyText(input) ? 'Link copiado.' : 'Não deu para copiar: selecione o link e copie.', 'ok');
       };
+    },
+  });
+}
+
+/* ======================================================= perfil de acesso */
+
+/**
+ * Cria, edita ou so mostra (readOnly) um perfil: nome, nivel e direitos.
+ * Caixas de direitos que quem edita nao tem ficam travadas - ninguem concede
+ * o que nao tem (o servidor recusa de qualquer forma).
+ */
+export function openProfileEditor(profile, onSaved, { readOnly = false } = {}) {
+  const editing = Boolean(profile?.id);
+  const locked = readOnly || profile?.key === 'admin';
+  const { groups } = ctx.state.profiles;
+  const has = new Set(profile?.permissions ?? []);
+  const minLevel = me().is_admin ? 1 : me().level + 1;
+
+  const title = locked ? `Perfil ${esc(profile.name)}` : editing ? 'Editar perfil' : 'Novo perfil';
+  const sub = profile?.key === 'admin'
+    ? 'Topo da hierarquia: tem todos os direitos, sempre. Não pode ser alterado.'
+    : locked
+      ? 'Você só pode ver: este perfil está no seu nível ou acima dele.'
+      : 'Defina o nome, a posição na hierarquia e o que o perfil pode fazer.';
+
+  openModal({
+    html: `
+      <div class="modal-head">
+        <div><h3>${title}</h3><p>${sub}</p></div>
+        <div class="spacer"></div><button class="btn btn-ghost btn-sm" data-close>&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          ${field('Nome do perfil *', `<input type="text" name="name" maxlength="40" value="${esc(profile?.name)}"
+              placeholder="Ex.: Coordenador, Monitor"${locked ? ' disabled' : ''}>`)}
+          ${field('Nível na hierarquia *', `<input type="number" name="level" min="${minLevel}" max="99" step="1"
+              value="${esc(profile?.level ?? Math.max(minLevel, 10))}"${locked ? ' disabled' : ''}>`,
+            profile?.key === 'admin' ? 'Nível 0: o topo.' : `1 é o mais alto. Você pode usar de ${minLevel} a 99.`)}
+        </div>
+        <div class="field">
+          <label>Direitos</label>
+          <div class="perm-groups">
+            ${groups.map((g) => `
+              <fieldset class="perm-group">
+                <legend>${esc(g.label)}</legend>
+                ${g.items.map((item) => {
+                  const mine = me().permissions.includes(item.key);
+                  const off = locked || !mine;
+                  return `<label class="perm${off ? ' off' : ''}"${!locked && !mine ? ' title="Seu perfil não tem este direito, então você não pode concedê-lo."' : ''}>
+                    <input type="checkbox" name="perm" value="${esc(item.key)}"${has.has(item.key) ? ' checked' : ''}${off ? ' disabled' : ''}>
+                    <span>${esc(item.label)}</span>
+                  </label>`;
+                }).join('')}
+              </fieldset>`).join('')}
+          </div>
+          <span class="hint">Editar e excluir o que a própria pessoa criou é sempre permitido, com ou sem esses direitos.</span>
+        </div>
+      </div>
+      <div class="modal-foot">
+        ${locked ? '<button class="btn btn-primary" data-close>Fechar</button>' : `
+          <button class="btn" data-close>Cancelar</button>
+          <button class="btn btn-primary" data-act="save">${editing ? 'Salvar' : 'Criar perfil'}</button>`}
+      </div>`,
+    onMount(root, close) {
+      root.querySelector('[data-act="save"]')?.addEventListener('click', async (e) => {
+        const payload = {
+          name: val(root, 'name'),
+          level: Number(val(root, 'level')),
+          permissions: [...root.querySelectorAll('[name="perm"]:checked:not(:disabled)')].map((i) => i.value),
+        };
+        if (!payload.name) return showFormError(root, 'Informe o nome do perfil.');
+        if (!Number.isInteger(payload.level) || payload.level < minLevel || payload.level > 99) {
+          return showFormError(root, `O nível precisa ser um número inteiro de ${minLevel} a 99.`);
+        }
+        try {
+          await withBusy(e.currentTarget, () => (editing
+            ? api.updateProfile(profile.id, payload)
+            : api.createProfile(payload)));
+          toast(editing ? 'Perfil atualizado.' : 'Perfil criado.');
+          close();
+          await onSaved?.();
+        } catch (err) { showFormError(root, err.message); }
+      });
     },
   });
 }

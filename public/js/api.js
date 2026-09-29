@@ -117,6 +117,12 @@ export const api = {
   updateTaskRole: (id, payload) => request('PATCH', `/api/task-roles/${id}`, payload),
   deleteTaskRole: (id) => request('DELETE', `/api/task-roles/${id}`),
 
+  // perfis de acesso (ver: todos; criar/editar/excluir: direito perfis.gerenciar)
+  profiles: () => request('GET', '/api/profiles'),
+  createProfile: (payload) => request('POST', '/api/profiles', payload),
+  updateProfile: (id, payload) => request('PATCH', `/api/profiles/${id}`, payload),
+  deleteProfile: (id) => request('DELETE', `/api/profiles/${id}`),
+
   // cargos (leitura para todos, alteracao so admin)
   positions: () => request('GET', '/api/positions'),
   createPosition: (payload) => request('POST', '/api/positions', payload),

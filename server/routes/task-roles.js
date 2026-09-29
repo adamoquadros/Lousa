@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { all, get, run, tx } from '../db.js';
-import { requireAdmin, requireAuth } from '../auth.js';
+import { requireAuth, requirePermission } from '../auth.js';
+
+const requireCargos = requirePermission('equipe.cargos');
 
 /**
  * Funcoes que uma pessoa pode ter numa tarefa (Responsavel, Conferente, Quem
@@ -20,7 +22,8 @@ const withUsage = async (where = '', ...params) => all(`
 
 taskRolesRouter.get('/', async (_req, res) => res.json(await withUsage()));
 
-taskRolesRouter.post('/', async (req, res) => {
+// Criar funcao faz parte de montar uma tarefa: basta poder editar tarefas.
+taskRolesRouter.post('/', requirePermission('tarefas.editar'), async (req, res) => {
   const name = cleanName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Informe o nome da função.' });
   const existing = await get('SELECT id FROM task_roles WHERE name = ?', name);
@@ -30,7 +33,7 @@ taskRolesRouter.post('/', async (req, res) => {
   res.status(201).json((await withUsage('WHERE r.id = ?', info.lastInsertRowid))[0]);
 });
 
-taskRolesRouter.patch('/:id', requireAdmin, async (req, res) => {
+taskRolesRouter.patch('/:id', requireCargos, async (req, res) => {
   const id = Number(req.params.id);
   if (!await get('SELECT id FROM task_roles WHERE id = ?', id)) return res.status(404).json({ error: 'Função não encontrada.' });
   const name = cleanName(req.body?.name);
@@ -47,7 +50,7 @@ taskRolesRouter.patch('/:id', requireAdmin, async (req, res) => {
  * na mesma tarefa "sem funcao", a linha duplicada e removida antes (senao o
  * ON DELETE SET NULL bateria na regra de unicidade).
  */
-taskRolesRouter.delete('/:id', requireAdmin, async (req, res) => {
+taskRolesRouter.delete('/:id', requireCargos, async (req, res) => {
   const id = Number(req.params.id);
   const removed = await tx(async () => {
     await run(`

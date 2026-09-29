@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { get, run, tx } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requirePermission } from '../auth.js';
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, deleteBlobs, getBlob, putBlob } from '../storage.js';
 
 /**
@@ -57,7 +57,7 @@ subjectImagesRouter.get('/subjects/:id/images/:slot', async (req, res) => {
   return res.send(blob.data);
 });
 
-subjectImagesRouter.put('/subjects/:id/images/:slot', async (req, res, next) => {
+subjectImagesRouter.put('/subjects/:id/images/:slot', requirePermission('materias.editar'), async (req, res, next) => {
   const t = await target(req, res);
   if (!t) return;
 
@@ -86,7 +86,7 @@ subjectImagesRouter.put('/subjects/:id/images/:slot', async (req, res, next) => 
   });
 });
 
-subjectImagesRouter.delete('/subjects/:id/images/:slot', async (req, res) => {
+subjectImagesRouter.delete('/subjects/:id/images/:slot', requirePermission('materias.editar'), async (req, res) => {
   const t = await target(req, res);
   if (!t) return;
   await tx(async () => {
