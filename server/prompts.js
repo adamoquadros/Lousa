@@ -109,36 +109,123 @@ export async function buildContext(subjectId) {
 }
 
 /**
- * Prompt completo pronto para enviar. `hasAttachments` muda a frase sobre o
- * material: sem anexo o modelo precisa saber que so tem o contexto acima.
+ * Quanto texto de material cabe num prompt. ~60 mil caracteres = umas 25-30
+ * paginas de slides; cabe folgado nos chats (Claude, ChatGPT, Gemini) e no
+ * modelo da geracao automatica.
  */
-export async function buildPrompt(subjectId, preset, { hasAttachments = false } = {}) {
+export const MAX_MATERIAL_CHARS = 60_000;
+export const MAX_FOCUS_CHARS = 300;
+
+/**
+ * Material escolhido para a geracao.
+ *  fileIds: ids marcados na tela; null = todos os anexos da materia.
+ * Devolve os blocos de texto (dentro do orcamento) e o que ficou de fora.
+ */
+async function loadMaterial(subjectId, fileIds) {
+  const rows = await all(`
+    SELECT id, filename, mime, size, stored_as, extract_status, extracted_text
+      FROM attachments
+     WHERE subject_id = ? ${fileIds ? 'AND id = ANY(?::int[])' : ''}
+     ORDER BY created_at`, ...(fileIds ? [subjectId, fileIds] : [subjectId]));
+
+  const blocks = [];
+  const included = [];
+  const truncated = [];
+  const unread = []; // escolhidos, mas sem texto (imagem sem IA, falha, sem texto)
+  let budget = MAX_MATERIAL_CHARS;
+
+  for (const row of rows) {
+    const text = row.extract_status === 'ok' ? row.extracted_text : null;
+    if (!text) { unread.push(row); continue; }
+    if (budget <= 0) { truncated.push(row.filename); continue; }
+    const piece = text.length > budget
+      ? `${text.slice(0, budget)}\n[… o restante deste arquivo ficou de fora: o material passou do limite do prompt]`
+      : text;
+    if (text.length > budget) truncated.push(row.filename);
+    budget -= piece.length;
+    blocks.push(`### Arquivo: ${row.filename}\n${piece}`);
+    included.push(row.filename);
+  }
+  return { blocks, included, truncated, unread };
+}
+
+/**
+ * Prompt completo e o resumo do material usado.
+ *  files: ids dos anexos marcados (null = todos); focus: texto livre opcional.
+ *  attachedBinary: a chamada vai levar arquivos sem texto como anexo (geracao
+ *  automatica) - entao o prompt avisa que ha material alem do texto.
+ */
+export async function buildPrompt(subjectId, preset, { files = null, focus = '', attachedBinary = false } = {}) {
   if (!isPreset(preset)) return null;
   const built = await buildContext(subjectId);
   if (!built) return null;
 
-  const material = hasAttachments
-    ? 'Vou anexar o material da matéria (slides, PDFs, fotos do quadro). Baseie-se nele.'
-    : [
-        'Não há material anexado nesta chamada. Trabalhe com o contexto acima e,',
-        'onde faltar conteúdo, aponte o que precisa ser preenchido em vez de inventar.',
-      ].join(' ');
+  const material = await loadMaterial(subjectId, files);
+  const hasText = material.blocks.length > 0;
+  const cleanFocus = String(focus || '').trim().slice(0, MAX_FOCUS_CHARS);
 
-  return [
+  let materialSection;
+  if (hasText) {
+    materialSection = [
+      'Abaixo está o texto extraído do material da matéria (slides, PDFs, fotos do quadro).',
+      'Baseie-se nele. Marcações como [p. 4] indicam a página ou o slide de origem.',
+      ...(attachedBinary ? ['Há também arquivos anexados a esta mensagem: use-os junto com o texto.'] : []),
+      '',
+      material.blocks.join('\n\n'),
+    ].join('\n');
+  } else if (attachedBinary) {
+    materialSection = 'O material da matéria (slides, PDFs, fotos do quadro) está anexado a esta mensagem. Baseie-se nele.';
+  } else {
+    materialSection = [
+      'Não há material nesta chamada. Trabalhe com o contexto acima e,',
+      'onde faltar conteúdo, aponte o que precisa ser preenchido em vez de inventar.',
+    ].join(' ');
+  }
+
+  // Citar a fonte so faz sentido quando ha material para citar.
+  const citation = hasText || attachedBinary ? [
+    '',
+    'FONTES',
+    'Ao final de cada tópico, indique de onde veio entre parênteses, no formato (arquivo, p. N) — ex.: (Aula 3.pdf, p. 4).',
+    'Se algo não estiver no material e vier do seu conhecimento, marque com (fora do material).',
+  ] : [];
+
+  const focusSection = cleanFocus ? [
+    '',
+    'FOCO',
+    `Priorize: ${cleanFocus}`,
+    'Trate o restante do material só como apoio.',
+  ] : [];
+
+  const prompt = [
     'Você é um assistente de estudos de uma turma de faculdade.',
     '',
     'CONTEXTO DA MATÉRIA',
     built.context,
     '',
     'MATERIAL',
-    material,
+    materialSection,
+    ...focusSection,
     '',
     'TAREFA',
     PRESETS[preset].instruction,
+    ...citation,
     '',
     'Escreva em português do Brasil, direto ao ponto, sem introdução nem despedida.',
     'Formate em Markdown.',
   ].join('\n');
+
+  return {
+    prompt,
+    subject: built.subject,
+    material: {
+      included: material.included,
+      truncated: material.truncated,
+      unread: material.unread.map((r) => ({ id: r.id, filename: r.filename, status: r.extract_status })),
+      unreadRows: material.unread, // so para a geracao automatica (manda como anexo)
+      chars: material.blocks.reduce((sum, b) => sum + b.length, 0),
+    },
+  };
 }
 
 /** Titulo sugerido para o resumo gerado. */

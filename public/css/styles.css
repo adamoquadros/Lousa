@@ -819,6 +819,19 @@ input[type="color"] {
   font-family: var(--mono-font); font-size: var(--text-caption);
 }
 .ai-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-8); }
+
+/* Foco opcional, logo acima dos botoes de geracao. */
+.ai-focus { display: flex; flex-direction: column; gap: var(--spacing-6); margin-bottom: var(--spacing-12); }
+.ai-focus label { font-size: 13px; font-weight: var(--font-weight-medium); color: var(--muted); }
+
+/* Resumo do material que entrou no prompt (janela "copiar prompt"). */
+.ai-summary {
+  display: flex; flex-direction: column; gap: var(--spacing-4);
+  padding: var(--spacing-10) var(--spacing-12); margin-bottom: var(--spacing-12);
+  border-radius: var(--radius-buttons); background: var(--surface-2); box-shadow: var(--shadow-subtle-2);
+  font-size: 13px;
+}
+.ai-summary .warn { color: var(--alert); }
 .ai-actions:empty::before { content: '...'; color: var(--icon); }
 
 /* O prompt e longo: monoespacado e rolavel, sem empurrar o rodape do modal. */
@@ -850,6 +863,11 @@ input[type="color"] {
   padding: var(--spacing-6) 0; border-bottom: 1px solid var(--border);
 }
 .ai-file:last-child { border-bottom: 0; }
+.ai-file-pick { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--text); cursor: pointer; }
+.ai-file-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ai-file-read { font-size: var(--text-caption); line-height: 1.4; color: var(--muted); }
+.ai-file-read.ok { color: var(--text); }
+.ai-file-read.warn { color: var(--alert); }
 .ai-file-kind {
   flex: none; padding: 1px 6px; border-radius: var(--radius-buttons);
   font-family: var(--mono-font); font-size: var(--text-caption);

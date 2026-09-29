@@ -11,7 +11,7 @@
  * - Recusa rodar se o Postgres ja tiver contas, para nao duplicar dados.
  */
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { all, get, migrate, pool, run, tx } from '../server/db.js';
@@ -26,6 +26,12 @@ const TABLES = [
 ];
 
 /** SQLite guardava "2026-09-28 17:00:00" em UTC, sem fuso: vira ISO com Z. */
+/** Tipo pelo nome do arquivo (o nome em disco sempre termina na extensao certa). */
+const MIME_BY_EXT = {
+  '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp', '.heic': 'image/heic', '.heif': 'image/heif',
+};
+
 const fixTimestamp = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(v)
   ? `${v.replace(' ', 'T')}Z`
   : v);
@@ -79,6 +85,25 @@ async function main() {
       }
       report.push([table, `${rows.length} linha(s)`]);
     }
+
+    // Arquivos (anexos e imagens) moravam em data/uploads; no Postgres ficam em
+    // blobs, com a mesma chave que as linhas acima ja apontam.
+    const keys = (await all(`
+      SELECT stored_as AS k FROM attachments
+      UNION SELECT cover_image FROM subjects WHERE cover_image IS NOT NULL
+      UNION SELECT backdrop_image FROM subjects WHERE backdrop_image IS NOT NULL`)).map((r) => r.k);
+    let copied = 0;
+    const missing = [];
+    for (const key of keys) {
+      const file = join(root, 'data', 'uploads', key);
+      if (!existsSync(file)) { missing.push(key); continue; }
+      const data = readFileSync(file);
+      const ext = key.slice(key.lastIndexOf('.')).toLowerCase();
+      await run('INSERT INTO blobs (key, mime, size, data) VALUES (?, ?, ?, ?) ON CONFLICT (key) DO NOTHING',
+        key, MIME_BY_EXT[ext] || 'application/octet-stream', data.length, data);
+      copied += 1;
+    }
+    report.push(['arquivos', `${copied} copiado(s)${missing.length ? `, ${missing.length} sem arquivo em data/uploads` : ''}`]);
   });
 
   lite.close();

@@ -98,11 +98,17 @@ export const api = {
   uploadAttachments: (subjectId, files) => upload(`/api/subjects/${subjectId}/attachments`, files),
   deleteAttachment: (id) => request('DELETE', `/api/attachments/${id}`),
   attachmentUrl: (id) => `/api/attachments/${id}/file`,
+  attachmentText: (id) => request('GET', `/api/attachments/${id}/text`),
+  extractAttachment: (id) => request('POST', `/api/attachments/${id}/extract`),
 
   // ia
   aiStatus: () => request('GET', '/api/ai/status'),
-  aiPrompt: (subjectId, preset) => request('GET', `/api/ai/subjects/${subjectId}/prompt${qs({ preset })}`),
-  aiGenerate: (subjectId, preset) => request('POST', `/api/ai/subjects/${subjectId}/generate`, { preset }),
+  // files: ids dos anexos marcados ([] = nenhum); focus: texto livre opcional.
+  aiPrompt: (subjectId, preset, { files, focus } = {}) => request('GET', `/api/ai/subjects/${subjectId}/prompt${qs({
+    preset, focus, files: Array.isArray(files) ? (files.length ? files.join(',') : 'none') : undefined,
+  })}`),
+  aiGenerate: (subjectId, preset, { files, focus } = {}) =>
+    request('POST', `/api/ai/subjects/${subjectId}/generate`, { preset, files, focus }),
 
   // panorama e equipe (admin)
   overview: (semesterId) => request('GET', `/api/overview${qs({ semester: semesterId })}`),

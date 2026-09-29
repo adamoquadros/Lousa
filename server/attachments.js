@@ -7,7 +7,7 @@
  * em cerca de 1/3, o orcamento em disco fica bem abaixo disso.
  */
 import { all } from './db.js';
-import { MAX_UPLOAD_BYTES, deleteBlobs, getBlob } from './storage.js';
+import { MAX_UPLOAD_BYTES, deleteBlobs } from './storage.js';
 
 export const MAX_FILE_BYTES = MAX_UPLOAD_BYTES;
 
@@ -48,40 +48,6 @@ export async function storedFilesOf(subjectIds) {
 
 export const removeStoredFiles = (keys) => deleteBlobs(keys);
 
-export const listForSubject = (subjectId) =>
-  all('SELECT * FROM attachments WHERE subject_id = ? ORDER BY created_at', subjectId);
-
 export const humanSize = (bytes) => (bytes >= 1024 * 1024
   ? `${(bytes / 1024 / 1024).toFixed(1)}MB`
   : `${Math.max(1, Math.round(bytes / 1024))}KB`);
-
-/**
- * Le os anexos da materia e devolve as partes prontas para a API, respeitando o
- * orcamento. Devolve tambem o que ficou de fora, para a interface poder avisar
- * em vez de silenciosamente ignorar arquivo.
- */
-export async function loadParts(subjectId) {
-  const rows = await listForSubject(subjectId);
-  const parts = [];
-  const included = [];
-  const skipped = [];
-  let total = 0;
-
-  for (const row of rows) {
-    if (total + row.size > MAX_TOTAL_BYTES) {
-      skipped.push({ filename: row.filename, reason: 'orcamento' });
-      continue;
-    }
-    const blob = await getBlob(row.stored_as);
-    if (!blob) {
-      // O registro ficou mas o conteudo nao: avisa em vez de quebrar.
-      skipped.push({ filename: row.filename, reason: 'ilegivel' });
-      continue;
-    }
-    parts.push({ type: kindOf(row.mime), data: blob.data.toString('base64'), mime_type: row.mime });
-    included.push(row.filename);
-    total += row.size;
-  }
-
-  return { parts, included, skipped, bytes: total };
-}

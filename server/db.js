@@ -233,6 +233,15 @@ CREATE TABLE IF NOT EXISTS invites (
   accepted_at  TIMESTAMPTZ
 );
 
+-- Texto lido de cada anexo (ver server/extract.js), para entrar no prompt.
+-- extract_status: ok | empty (sem texto) | needs_ai (imagem sem chave de IA)
+--                 | failed | NULL (ainda nao lido: anexos antigos)
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extracted_text TEXT;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extract_status TEXT;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extract_method TEXT;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extract_error  TEXT;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS extract_pages  INTEGER;
+
 -- Perfis de acesso: nome, nivel na hierarquia (0 = topo) e direitos.
 -- key marca os dois perfis do sistema: 'admin' (tem tudo, nao pode ser
 -- apagado nem rebaixado) e 'member' (padrao de quem entra, editavel).

@@ -109,6 +109,26 @@ conjunto de matérias.
 Clicar no próprio nome, no canto superior direito, abre o menu da conta: **Editar perfil**
 (nome, e-mail, cor), **Alterar senha**, **Convidar participante** (admin) e **Sair**.
 
+## Material e prompts de estudo
+
+Na aba **Resumos** de cada matéria ficam os anexos (PDFs e fotos de slides ou do quadro, até 4MB)
+e os botões que montam o prompt (Resumo para prova, para estudos, para apresentação, Slides).
+
+- **Leitura automática:** ao anexar, o app lê o conteúdo. PDF com texto é lido direto, página por
+  página e sem IA; foto e PDF escaneado são transcritos pelo Gemini (precisa de `GEMINI_API_KEY`;
+  sem ela, ficam como "precisa da IA" e podem ser relidos depois em **Ler de novo**).
+  O texto fica guardado no anexo; **Ver texto** mostra o que foi lido.
+- **O prompt leva o material:** o texto dos anexos marcados entra no prompt, com a página de
+  origem (`[p. 4]`), até ~60 mil caracteres. O que passar disso é cortado e avisado.
+- **Foco** (opcional): uma linha para dizer o que priorizar ("só a unidade 2", "Dejours e Clot").
+- **Fontes:** o prompt pede que cada tópico cite de onde veio, no formato (arquivo, p. N), e marque
+  (fora do material) o que vier de fora.
+- O prompt usa só o que muda o conteúdo: nome da matéria, observações/ementa, avaliações em
+  aberto e títulos dos resumos já feitos. Professor, sala, dias de aula e datas ficam de fora.
+- Com chave de IA, o botão gera e salva o resumo sozinho; sem chave (ou sem o direito
+  "Gerar resumos com IA"), abre o prompt pronto para copiar. Prompt longo não cabe no link
+  "Abrir no Claude": aí o caminho é **Copiar**.
+
 ## Convites
 
 Admin convida pelo menu da conta ou em **Equipe → Convidar participante**, informando e-mail,
