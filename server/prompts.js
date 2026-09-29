@@ -8,7 +8,6 @@
  */
 import { all, get } from './db.js';
 
-const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 export const PRESETS = {
   prova: {
@@ -62,19 +61,19 @@ export const isPreset = (name) => Object.hasOwn(PRESETS, name);
 
 const line = (label, value) => (value ? `${label}: ${value}\n` : '');
 
-/** Bloco de contexto da materia, sem a instrucao do preset. */
+/**
+ * Bloco de contexto da materia, sem a instrucao do preset.
+ *
+ * So entra o que muda o CONTEUDO do resumo: nome da materia, ementa e
+ * observacoes, avaliacoes em aberto e o que a turma ja resumiu. Dados de
+ * logistica (professor, sala, dias de aula, codigo, datas) ficam de fora:
+ * nao ajudam a explicar a materia e so ocupam espaco no prompt.
+ */
 export async function buildContext(subjectId) {
-  const subject = await get(
-    'SELECT id, name, code, professor, room, notes FROM subjects WHERE id = ?',
-    subjectId,
-  );
+  const subject = await get('SELECT id, name, notes FROM subjects WHERE id = ?', subjectId);
   if (!subject) return null;
 
-  const classes = await all(
-    'SELECT weekday, starts_at, ends_at FROM classes WHERE subject_id = ? ORDER BY weekday, starts_at',
-    subjectId,
-  );
-  // Prazos que ainda importam: o que esta em aberto daqui para a frente.
+  // Avaliacoes e tarefas em aberto: dizem o que a turma precisa dominar.
   const tasks = await all(`
     SELECT title, kind, status, due_date, description
       FROM tasks
@@ -87,15 +86,7 @@ export async function buildContext(subjectId) {
   );
 
   let out = '';
-  out += line('Matéria', subject.code ? `${subject.name} (${subject.code})` : subject.name);
-  out += line('Professor(a)', subject.professor);
-  out += line('Sala', subject.room);
-
-  if (classes.length) {
-    out += line('Aulas', classes
-      .map((c) => `${WEEKDAYS[c.weekday]}${c.starts_at ? ` ${c.starts_at}` : ''}`)
-      .join(', '));
-  }
+  out += line('Matéria', subject.name);
 
   if (subject.notes) {
     out += `\nEmenta e observações da turma:\n${subject.notes}\n`;
@@ -104,9 +95,8 @@ export async function buildContext(subjectId) {
   if (tasks.length) {
     out += '\nAvaliações e tarefas em aberto:\n';
     for (const t of tasks) {
-      const when = t.due_date ? ` - ${t.due_date}` : ' - sem data';
       const desc = t.description ? ` (${t.description})` : '';
-      out += `- [${t.kind}] ${t.title}${when}${desc}\n`;
+      out += `- [${t.kind}] ${t.title}${desc}\n`;
     }
   }
 
