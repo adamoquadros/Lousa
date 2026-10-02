@@ -194,31 +194,55 @@ apiRouter.delete('/subjects/:id', async (req, res) => {
 /**
  * assignees: uma entrada por (pessoa, funcao) - a mesma pessoa aparece de novo
  * se tiver duas funcoes. Sem funcao: role_id/role_name nulos.
+ * everyone: as funcoes marcadas como "Todos". Cada uma vira uma entrada por
+ * pessoa da equipe em assignees (com everyone: true), para quem conta "minhas
+ * tarefas" nao precisar conhecer a regra.
  */
 async function withAssignees(tasks) {
   if (!tasks.length) return tasks;
+  const ids = tasks.map((t) => t.id);
+  const everyone = await all(
+    `SELECT te.task_id, r.id AS role_id, r.name AS role_name
+       FROM task_everyone te
+       LEFT JOIN task_roles r ON r.id = te.role_id
+      WHERE te.task_id = ANY(?::int[])
+      ORDER BY r.id NULLS LAST`, ids);
+  const people = everyone.length ? await all('SELECT id, name, color FROM users ORDER BY lower(name)') : [];
   const rows = await all(
     `SELECT ta.task_id, u.id, u.name, u.color, r.id AS role_id, r.name AS role_name
        FROM task_assignees ta
        JOIN users u ON u.id = ta.user_id
        LEFT JOIN task_roles r ON r.id = ta.role_id
       WHERE ta.task_id = ANY(?::int[])
-      ORDER BY r.id NULLS LAST, lower(u.name)`, tasks.map((t) => t.id));
+      ORDER BY r.id NULLS LAST, lower(u.name)`, ids);
   for (const t of tasks) {
-    t.assignees = rows
+    const own = rows
       .filter((r) => r.task_id === t.id)
       .map((r) => ({ id: r.id, name: r.name, color: r.color, role_id: r.role_id, role_name: r.role_name }));
+    t.everyone = everyone
+      .filter((e) => e.task_id === t.id)
+      .map((e) => ({ role_id: e.role_id, role_name: e.role_name }));
+    // Quem ja esta na tarefa com a mesma funcao nao aparece duas vezes.
+    const seen = new Set(own.map((a) => `${a.id}:${a.role_id}`));
+    const fromAll = t.everyone.flatMap((e) => people
+      .filter((p) => !seen.has(`${p.id}:${e.role_id}`))
+      .map((p) => ({ id: p.id, name: p.name, color: p.color, role_id: e.role_id, role_name: e.role_name, everyone: true })));
+    t.assignees = [...own, ...fromAll];
   }
   return tasks;
 }
 
 /**
- * Le quem participa da tarefa. Formato novo: assignments [{ user_id, role_id }].
+ * Le quem participa da tarefa. Formato novo: assignments [{ user_id, role_id }],
+ * com user_id "all" para "Todos" (a equipe inteira naquela funcao).
  * Formato antigo (so pessoas, sem funcao): assignees [ids]. undefined = nao mexe.
  */
 function readAssignments(body) {
   if (Array.isArray(body?.assignments)) {
-    return body.assignments.map((a) => ({ user: Number(a?.user_id), role: Number(a?.role_id) || null }));
+    return body.assignments.map((a) => ({
+      user: a?.user_id === 'all' ? 'all' : Number(a?.user_id),
+      role: Number(a?.role_id) || null,
+    }));
   }
   if (Array.isArray(body?.assignees)) return body.assignees.map((id) => ({ user: Number(id), role: null }));
   return undefined;
@@ -226,7 +250,18 @@ function readAssignments(body) {
 
 async function replaceAssignees(taskId, assignments) {
   await run('DELETE FROM task_assignees WHERE task_id = ?', taskId);
-  const valid = (assignments ?? []).filter((a) => a.user);
+  await run('DELETE FROM task_everyone WHERE task_id = ?', taskId);
+  const everyone = (assignments ?? []).filter((a) => a.user === 'all');
+  if (everyone.length) {
+    await run(
+      `INSERT INTO task_everyone (task_id, role_id)
+       SELECT ?, r.id
+         FROM unnest(?::int[]) AS a(role_id)
+         LEFT JOIN task_roles r ON r.id = a.role_id
+       ON CONFLICT DO NOTHING`,
+      taskId, everyone.map((a) => a.role));
+  }
+  const valid = (assignments ?? []).filter((a) => a.user && a.user !== 'all');
   if (!valid.length) return;
   // So entra pessoa e funcao que existem (conta ou funcao removidas sao
   // ignoradas); repetidos caem no indice unico e sao descartados.
@@ -247,7 +282,8 @@ apiRouter.get('/tasks', async (req, res) => {
   if (req.query.subject) { where.push('t.subject_id = ?'); params.push(Number(req.query.subject)); }
   if (req.query.status) { where.push('t.status = ?'); params.push(String(req.query.status)); }
   if (req.query.assignee) {
-    where.push('EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)');
+    where.push(`(EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)
+                OR EXISTS (SELECT 1 FROM task_everyone te WHERE te.task_id = t.id))`);
     params.push(Number(req.query.assignee));
   }
   const tasks = await all(

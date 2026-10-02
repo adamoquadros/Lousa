@@ -262,6 +262,18 @@ const assignmentChip = (a) => `
     ${avatar(a, true)}${esc(a.role_name || a.name.split(' ')[0])}
   </span>`;
 
+/** "Todos": um selo so no lugar de um avatar por pessoa da equipe. */
+const everyoneChip = (e) => `
+  <span class="pill assign-chip everyone-chip" title="Toda a equipe${e.role_name ? ` — ${esc(e.role_name)}` : ''}">
+    <span class="everyone-mark" aria-hidden="true">&#8734;</span>Todos${e.role_name ? ` · ${esc(e.role_name)}` : ''}
+  </span>`;
+
+/** Chips de quem participa: os "Todos" primeiro, depois as pessoas avulsas. */
+const assignmentChips = (task) => [
+  ...(task.everyone ?? []).map(everyoneChip),
+  ...(task.assignees ?? []).filter((a) => !a.everyone).map(assignmentChip),
+].join('');
+
 export function taskRow(task, showSubject = false) {
   const done = task.status === 'concluida';
   const due = dueLabel(task.due_date, done);
@@ -278,7 +290,7 @@ export function taskRow(task, showSubject = false) {
             ? `<span class="pill"><span class="subject-dot" style="background:${esc(task.subject_color)}"></span>${esc(task.subject_name)}</span>` : ''}
           ${due ? `<span class="pill ${due.tone}">${esc(due.text)}</span>` : ''}
           ${task.assignees?.length
-            ? task.assignees.map(assignmentChip).join('')
+            ? assignmentChips(task)
             : '<span class="pill muted">Sem responsável</span>'}
           ${task.priority === 'alta' ? '<span class="pill strong">Alta</span>' : ''}
           ${task.status === 'andamento' ? '<span class="pill muted">Em andamento</span>' : ''}
@@ -493,6 +505,8 @@ export function openSubjectForm(subject, onSaved) {
 /* ======================================================= formulario de tarefa */
 
 const NEW_ROLE = '__new';
+/** Valor da opcao "Todos" no seletor de pessoa (o servidor entende "all"). */
+const ALL = 'all';
 
 /** Uma linha "pessoa + funcao" do formulario de tarefa. */
 function assignmentRowHtml(a = {}) {
@@ -502,6 +516,7 @@ function assignmentRowHtml(a = {}) {
     <div class="assign-row">
       <select name="a-user" aria-label="Pessoa">
         <option value="">Escolha a pessoa…</option>
+        <option value="${ALL}"${a.everyone ? ' selected' : ''}>Todos (toda a equipe)</option>
         ${people.map((u) => `<option value="${u.id}"${u.id === a.id ? ' selected' : ''}>${esc(u.name)}</option>`).join('')}
       </select>
       <select name="a-role" aria-label="Função">
@@ -526,8 +541,14 @@ export function openTaskForm(source, onSaved, { duplicate = false } = {}) {
   const editing = Boolean(task?.id);
   const subjects = ctx.state.subjects;
   // Tarefa nova ja vem com uma linha na primeira funcao (Responsável, por padrao).
-  const initial = task?.assignees?.length
-    ? task.assignees
+  // "Todos" volta como uma linha so; as entradas que o servidor expandiu dele
+  // (everyone: true) nao viram linhas por pessoa.
+  const existing = [
+    ...(task?.everyone ?? []).map((e) => ({ everyone: true, role_id: e.role_id })),
+    ...(task?.assignees ?? []).filter((a) => !a.everyone),
+  ];
+  const initial = existing.length
+    ? existing
     : [{ id: null, role_id: ctx.state.taskRoles[0]?.id ?? null }];
 
   openModal({
@@ -556,7 +577,8 @@ export function openTaskForm(source, onSaved, { duplicate = false } = {}) {
           <label>Pessoas e funções</label>
           <div class="assign-list" data-slot="assignments"></div>
           <button type="button" class="btn btn-sm self-start" data-act="add-assignment">+ Adicionar pessoa</button>
-          <span class="hint">Ex.: quem faz, quem confere e quem envia. A mesma pessoa pode ter mais de uma função.</span>
+          <span class="hint">Ex.: quem faz, quem confere e quem envia. A mesma pessoa pode ter mais de uma função.
+            <strong>Todos</strong> vale para a equipe inteira, inclusive quem entrar depois.</span>
         </div>
       </div>
       <div class="modal-foot">
@@ -588,7 +610,8 @@ export function openTaskForm(source, onSaved, { duplicate = false } = {}) {
       async function readAssignments() {
         const out = [];
         for (const row of list.querySelectorAll('.assign-row')) {
-          const userId = Number(row.querySelector('[name="a-user"]').value);
+          const picked = row.querySelector('[name="a-user"]').value;
+          const userId = picked === ALL ? ALL : Number(picked);
           if (!userId) continue; // linha sem pessoa escolhida: ignorada
           const roleSelect = row.querySelector('[name="a-role"]');
           let roleId = Number(roleSelect.value) || null;

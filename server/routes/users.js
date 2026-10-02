@@ -51,9 +51,10 @@ const OUT_OF_REACH = 'Essa pessoa está no seu nível ou acima dele na hierarqui
 usersRouter.get('/', async (req, res) => {
   const rows = await all(`
     SELECT x.*,
-           (SELECT COUNT(DISTINCT t.id) FROM task_assignees ta
-              JOIN tasks t ON t.id = ta.task_id
-             WHERE ta.user_id = x.id AND t.status <> 'concluida') AS open_tasks
+           (SELECT COUNT(*) FROM tasks t
+             WHERE t.status <> 'concluida'
+               AND (EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = x.id)
+                    OR EXISTS (SELECT 1 FROM task_everyone te WHERE te.task_id = t.id))) AS open_tasks
       FROM (${SELECT}) x
      ORDER BY x.profile_level, lower(x.name)`);
   // A tela usa isto para mostrar (ou esconder) Editar/Remover em cada linha.

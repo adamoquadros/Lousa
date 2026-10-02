@@ -16,7 +16,8 @@ const cleanName = (v) => (typeof v === 'string' ? v.trim().slice(0, 40) : '');
 
 const withUsage = async (where = '', ...params) => all(`
   SELECT r.id, r.name,
-         (SELECT COUNT(*) FROM task_assignees ta WHERE ta.role_id = r.id) AS uses
+         (SELECT COUNT(*) FROM task_assignees ta WHERE ta.role_id = r.id)
+         + (SELECT COUNT(*) FROM task_everyone te WHERE te.role_id = r.id) AS uses
     FROM task_roles r ${where}
    ORDER BY r.id`, ...params);
 
@@ -58,6 +59,10 @@ taskRolesRouter.delete('/:id', requireCargos, async (req, res) => {
        WHERE a.role_id = ?
          AND EXISTS (SELECT 1 FROM task_assignees b
                       WHERE b.task_id = a.task_id AND b.user_id = a.user_id AND b.role_id IS NULL)`, id);
+    await run(`
+      DELETE FROM task_everyone a
+       WHERE a.role_id = ?
+         AND EXISTS (SELECT 1 FROM task_everyone b WHERE b.task_id = a.task_id AND b.role_id IS NULL)`, id);
     return (await run('DELETE FROM task_roles WHERE id = ?', id)).changes;
   });
   if (!removed) return res.status(404).json({ error: 'Função não encontrada.' });

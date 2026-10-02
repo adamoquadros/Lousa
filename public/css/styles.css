@@ -542,6 +542,13 @@ input[type="color"] {
 /* Pessoa + funcao na linha da tarefa: "(ÁQ) Conferente". */
 .assign-chip { padding-left: 2px; gap: var(--spacing-6); }
 .assign-chip .avatar { box-shadow: none; }
+/* "Todos": mesmo formato do chip de pessoa, com o simbolo no lugar do avatar. */
+.everyone-mark {
+  width: 22px; height: 22px; border-radius: var(--radius-pills); flex: none;
+  display: grid; place-items: center; font-size: 14px; line-height: 1;
+  background: var(--cta-bg); color: var(--cta-text);
+}
+.everyone-chip { font-weight: var(--font-weight-medium); }
 
 /* Formulario da tarefa: uma linha por pessoa + funcao. */
 .assign-list { display: flex; flex-direction: column; gap: var(--spacing-8); }

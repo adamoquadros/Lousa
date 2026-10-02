@@ -99,6 +99,8 @@ A coluna antiga `users.role` (admin/member) continua sendo preenchida, por compa
 - **Tarefas**: lista de tudo do semestre, com busca e filtros por matéria, situação e responsável.
   Marcar como concluída é um clique na caixa à esquerda. **Duplicar** abre uma tarefa nova já
   preenchida com a estrutura de outra.
+  Em **Pessoas e funções**, a opção **Todos** coloca a equipe inteira na tarefa (com uma função
+  ou sem), inclusive quem entrar depois; na lista ela aparece como um selo "Todos".
 - **Agenda**: grade da semana com as aulas de cada matéria e os próximos prazos.
 - **Equipe**: quem participa e o cargo de cada um, e a tabela de **entregas por integrante**
   (a fazer, em andamento, atrasadas, 7 dias, concluídas e a próxima entrega; a linha abre as

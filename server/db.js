@@ -276,6 +276,15 @@ ALTER TABLE task_assignees ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES t
 ALTER TABLE task_assignees DROP CONSTRAINT IF EXISTS task_assignees_pkey;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_task_assignees ON task_assignees (task_id, user_id, role_id) NULLS NOT DISTINCT;
 
+-- "Todos" numa tarefa: a equipe inteira, com uma funcao (ou sem). Guarda so a
+-- regra; a lista de pessoas e montada na leitura, entao quem entrar na turma
+-- depois tambem fica incluido.
+CREATE TABLE IF NOT EXISTS task_everyone (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  role_id INTEGER REFERENCES task_roles(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_task_everyone ON task_everyone (task_id, role_id) NULLS NOT DISTINCT;
+
 -- Conteudo dos anexos e das imagens das materias. Fica no banco (e nao em
 -- disco) porque na Vercel cada requisicao roda numa maquina descartavel.
 -- attachments.stored_as e subjects.cover_image/backdrop_image apontam para key.
