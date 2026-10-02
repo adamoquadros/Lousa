@@ -1,5 +1,7 @@
 import { api } from './api.js';
-import { STATUSES, WEEKDAYS, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, toast } from './ui.js';
+import {
+  KINDS, STATUSES, WEEKDAYS, WEEKDAYS_SHORT, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, parseDate, toast, todayISO,
+} from './ui.js';
 import {
   bindTaskRows, initModals, openInviteForm, openPasswordForm, openPositionForm, openProfileForm, openSemesterForm, openTaskRoleForm, openProfileEditor,
   openSubjectForm, openSubjectModal, openTaskForm, openUserForm, showInviteResult, taskRow,
@@ -506,55 +508,292 @@ function teamTable() {
     ${unassigned ? `<p class="hint table-note">${unassigned} tarefa(s) aberta(s) sem responsável.</p>` : ''}`;
 }
 
+/** Abre a lista de Tarefas ja filtrada por uma pessoa. */
+function showTasksOf(userId) {
+  Object.assign(state.filters, { assignee: String(userId), subject: '', status: '', q: '', showDone: false });
+  goTo('tarefas');
+}
+
+/** Linhas da tabela de integrantes (aba Equipe) levam as tarefas da pessoa. */
+function bindMemberRows(view) {
+  view.querySelectorAll('[data-member]').forEach((row) => {
+    row.onclick = () => showTasksOf(row.dataset.member);
+    row.onkeydown = (e) => { if (e.key === 'Enter') showTasksOf(row.dataset.member); };
+  });
+}
+
+/* ------------------------------------------------------------ visao geral: area pessoal */
+
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const dueISO = (t) => (t.due_date ? String(t.due_date).slice(0, 10) : null);
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Bom dia';
+  return h < 18 ? 'Boa tarde' : 'Boa noite';
+}
+
+/**
+ * O que a Visao geral mostra sobre quem esta logado. Sai de state.tasks, que
+ * ja vem filtrado pelo semestre selecionado e com as pessoas de cada tarefa.
+ */
+function myDashboard() {
+  const me = state.user.id;
+  const mine = state.tasks.filter((t) => t.assignees.some((a) => a.id === me));
+  const open = mine.filter((t) => t.status !== 'concluida');
+  const days = (t) => daysUntil(t.due_date);
+  const byDue = (a, b) => dueISO(a).localeCompare(dueISO(b));
+  const upcoming = open.filter((t) => t.due_date && days(t) >= 0).sort(byDue);
+
+  // Funcoes que a pessoa ocupa nas tarefas abertas: "Responsável · 3".
+  const roles = new Map();
+  for (const t of open) {
+    for (const a of t.assignees) {
+      if (a.id !== me) continue;
+      const name = a.role_name || 'Sem função';
+      roles.set(name, (roles.get(name) ?? 0) + 1);
+    }
+  }
+
+  return {
+    mine,
+    open,
+    upcoming,
+    late: open.filter((t) => t.due_date && days(t) < 0).sort(byDue),
+    week: upcoming.filter((t) => days(t) <= 7),
+    undated: open.filter((t) => !t.due_date),
+    doing: open.filter((t) => t.status === 'andamento'),
+    done: mine.length - open.length,
+    roles: [...roles].sort((a, b) => b[1] - a[1]),
+    bySubject: state.subjects
+      .map((s) => ({ subject: s, count: open.filter((t) => t.subject_id === s.id).length }))
+      .filter((x) => x.count)
+      .sort((a, b) => b.count - a.count),
+  };
+}
+
+/** Frase de abertura: a situacao da pessoa numa linha. */
+function headline(d) {
+  if (!d.mine.length) return 'Nenhuma tarefa com você neste semestre.';
+  if (!d.open.length) return 'Tudo em dia: nenhuma entrega pendente com você.';
+  const parts = [];
+  if (d.late.length) parts.push(plural(d.late.length, 'entrega atrasada', 'entregas atrasadas'));
+  parts.push(d.week.length
+    ? `${plural(d.week.length, 'entrega', 'entregas')} nos próximos 7 dias`
+    : 'nada vencendo nos próximos 7 dias');
+  return `Você tem ${parts.join(' e ')}.`;
+}
+
+/** Destaque do topo: a entrega mais urgente (atrasada antes, depois a proxima). */
+function focusCard(d) {
+  const t = d.late[0] ?? d.upcoming[0];
+  if (!t) {
+    return `
+      <div class="focus-card calm">
+        <div class="focus-count"><span class="focus-big">&#10003;</span></div>
+        <div class="focus-main">
+          <span class="focus-kicker">Próxima entrega</span>
+          <strong class="focus-title">${d.open.length ? 'Nenhum prazo marcado' : 'Nada pendente com você'}</strong>
+          <span class="focus-meta">${d.undated.length
+            ? `${plural(d.undated.length, 'tarefa aberta', 'tarefas abertas')} sem prazo definido.`
+            : 'Aproveite para adiantar a leitura ou revisar os resumos.'}</span>
+        </div>
+      </div>`;
+  }
+  const n = daysUntil(t.due_date);
+  const late = n < 0;
+  const big = late ? Math.abs(n) : n === 0 ? 'Hoje' : n;
+  let unit = '';
+  if (late) unit = Math.abs(n) === 1 ? 'dia de atraso' : 'dias de atraso';
+  else if (n > 0) unit = n === 1 ? 'dia' : 'dias';
+  const myRoles = t.assignees.filter((a) => a.id === state.user.id && a.role_name).map((a) => a.role_name);
+  return `
+    <button class="focus-card${n <= 0 ? ' alert' : ''}" data-open-task="${t.id}" style="--card-color:${esc(t.subject_color)}">
+      <div class="focus-count"><span class="focus-big">${big}</span>${unit ? `<span class="focus-unit">${unit}</span>` : ''}</div>
+      <div class="focus-main">
+        <span class="focus-kicker">${late ? 'Atrasada' : 'Próxima entrega'} · ${esc(KINDS[t.kind] || t.kind)}</span>
+        <strong class="focus-title">${esc(t.title)}</strong>
+        <span class="focus-meta">
+          <span class="subject-dot" style="background:${esc(t.subject_color)}"></span>${esc(t.subject_name)}
+          · ${esc(formatDate(t.due_date, { weekday: 'long' }))}${myRoles.length ? ` · você: ${esc(myRoles.join(', '))}` : ''}
+        </span>
+      </div>
+    </button>`;
+}
+
+function myStats(d) {
+  const total = d.mine.length;
+  const pct = total ? Math.round((d.done / total) * 100) : 0;
+  return `
+    <div class="stats home-stats">
+      <div class="stat${d.late.length ? ' alert' : ''}"><div class="value">${d.late.length}</div><div class="label">Atrasadas</div></div>
+      <div class="stat"><div class="value">${d.week.length}</div><div class="label">Vencem em 7 dias</div></div>
+      <div class="stat"><div class="value">${d.doing.length}</div><div class="label">Em andamento</div></div>
+      <div class="stat">
+        <div class="value">${pct}%</div>
+        <div class="label">${total ? `${d.done} de ${total} concluídas` : 'Sem tarefas ainda'}</div>
+        <div class="stat-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+      </div>
+    </div>`;
+}
+
+/**
+ * Os proximos 7 dias, a partir de hoje: em cada dia, a carga (barra), as
+ * entregas da pessoa e as aulas da turma.
+ */
+function weekStrip(d) {
+  const base = parseDate(todayISO());
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(base);
+    day.setDate(base.getDate() + i);
+    return day;
+  });
+  const dueOn = (iso) => d.open.filter((t) => dueISO(t) === iso);
+  const busiest = Math.max(1, ...days.map((day) => dueOn(isoOf(day)).length));
+
+  return `
+    <div class="week-strip">
+      ${days.map((day, i) => {
+        const tasks = dueOn(isoOf(day));
+        const classes = state.subjects
+          .flatMap((s) => s.classes.filter((c) => c.weekday === day.getDay()).map((c) => ({ ...c, subject: s })))
+          .sort((a, b) => (a.starts_at ?? '').localeCompare(b.starts_at ?? ''));
+        const name = i === 0 ? 'Hoje' : i === 1 ? 'Amanhã' : WEEKDAYS_SHORT[day.getDay()];
+        return `
+          <div class="day-col${i === 0 ? ' today' : ''}${tasks.length ? ' busy' : ''}">
+            <div class="day-head">
+              <span class="day-name">${name}</span>
+              <span class="day-date">${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}</span>
+            </div>
+            <div class="day-load" title="${plural(tasks.length, 'entrega', 'entregas')}">
+              <span style="width:${(tasks.length / busiest) * 100}%"></span>
+            </div>
+            <div class="day-count">${tasks.length ? plural(tasks.length, 'entrega', 'entregas') : 'livre'}</div>
+            ${tasks.map((t) => `
+              <button class="day-task" data-open-task="${t.id}" style="--card-color:${esc(t.subject_color)}"
+                      title="${esc(t.title)} · ${esc(t.subject_name)}">${esc(t.title)}</button>`).join('')}
+            ${classes.map((c) => `
+              <button class="day-class" data-open-subject="${c.subject.id}" style="--card-color:${esc(c.subject.color)}"
+                      title="Aula de ${esc(c.subject.name)}${c.room ? ` · sala ${esc(c.room)}` : ''}">
+                ${c.starts_at ? `<span class="mono">${esc(c.starts_at)}</span> ` : ''}${esc(c.subject.name)}</button>`).join('')}
+          </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/** Barras: quantas tarefas abertas da pessoa em cada materia. */
+function subjectLoad(d) {
+  if (!d.bySubject.length) return '<p class="muted-text side-empty">Nenhuma tarefa aberta com você.</p>';
+  const max = d.bySubject[0].count;
+  return d.bySubject.map(({ subject: s, count }) => `
+    <button class="load-row" data-open-subject="${s.id}" title="Abrir ${esc(s.name)}">
+      <span class="load-name"><span class="subject-dot" style="background:${esc(s.color)}"></span>${esc(s.name)}</span>
+      <span class="load-bar"><span style="width:${(count / max) * 100}%;background:${esc(s.color)}"></span></span>
+      <span class="num">${count}</span>
+    </button>`).join('');
+}
+
 function viewHome(view) {
   const semester = state.semesters.find((s) => s.id === state.semesterId);
+  const firstName = esc(state.user.name.split(' ')[0]);
+  const longDate = formatDate(todayISO(), { weekday: 'long', day: 'numeric', month: 'long' });
+  const today = longDate.charAt(0).toUpperCase() + longDate.slice(1);
+
+  if (!semester) {
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h2>${greeting()}, ${firstName}</h2><p>${esc(today)}</p></div>
+        <div class="spacer"></div>
+        ${semesterPicker()}
+      </div>
+      ${noSemester()}`;
+    bindSemesterPicker(view);
+    bindSubjects(view);
+    return;
+  }
+
+  const d = myDashboard();
   const o = state.overview ?? {};
-  const period = semester?.starts_on || semester?.ends_on
-    ? ` · ${[semester.starts_on, semester.ends_on].map((d) => formatDate(d, { year: 'numeric' }) || '?').join(' a ')}`
-    : '';
+  const unassigned = state.tasks.filter((t) => t.status !== 'concluida' && !t.assignees.length).length;
+  const deadlines = [...d.late, ...d.upcoming];
+  const LIST_MAX = 6;
 
   view.innerHTML = `
     <div class="page-head">
       <div>
-        <h2>Visão geral</h2>
-        <p>${semester ? `Semestre ${esc(semester.name)}${esc(period)}` : 'Comece criando um semestre.'}</p>
+        <h2>${greeting()}, ${firstName}</h2>
+        <p>${esc(today)} · ${esc(headline(d))}</p>
       </div>
       <div class="spacer"></div>
       ${semesterPicker()}
     </div>
-    ${!semester ? noSemester() : `
-      <div class="stats">
-        <div class="stat"><div class="value">${o.subjects ?? 0}</div><div class="label">Matérias</div></div>
-        <div class="stat"><div class="value">${o.open_tasks ?? 0}</div><div class="label">Tarefas abertas</div></div>
-        <div class="stat${o.late_tasks ? ' alert' : ''}"><div class="value">${o.late_tasks ?? 0}</div><div class="label">Atrasadas</div></div>
-        <div class="stat"><div class="value">${o.week_tasks ?? 0}</div><div class="label">Vencem em 7 dias</div></div>
-      </div>
 
+    <div class="home-top">
+      ${focusCard(d)}
+      ${myStats(d)}
+    </div>
+
+    <section class="home-section">
+      <div class="section-head">
+        <div><h3>Sua semana</h3><p class="section-sub">Suas entregas e as aulas da turma nos próximos 7 dias.</p></div>
+      </div>
+      ${weekStrip(d)}
+    </section>
+
+    <div class="home-grid">
       <section class="home-section">
         <div class="section-head">
-          <div><h3>Integrantes</h3><p class="section-sub">Entregas de cada pessoa neste semestre. Clique para ver as tarefas.</p></div>
+          <div><h3>Seus prazos</h3><p class="section-sub">${d.late.length ? 'Atrasadas primeiro, depois as próximas.' : 'Das mais próximas às mais distantes.'}</p></div>
+          ${d.open.length ? `<button class="btn btn-sm" data-act="my-tasks">Ver todas as minhas (${d.open.length})</button>` : ''}
         </div>
-        ${teamTable()}
+        ${deadlines.length
+          ? `<div class="list">${deadlines.slice(0, LIST_MAX).map((t) => taskRow(t, true)).join('')}</div>
+             ${deadlines.length > LIST_MAX ? `<p class="hint table-note">E mais ${deadlines.length - LIST_MAX} com prazo.</p>` : ''}`
+          : `<div class="empty"><strong>Nenhum prazo com você</strong>${unassigned
+              ? `Há ${plural(unassigned, 'tarefa aberta', 'tarefas abertas')} da turma sem responsável.`
+              : 'Quando alguém colocar você numa tarefa, ela aparece aqui.'}</div>`}
+        ${d.undated.length && deadlines.length ? `<p class="hint table-note">${plural(d.undated.length, 'tarefa aberta', 'tarefas abertas')} sem prazo.</p>` : ''}
       </section>
 
-      <section class="home-section">
-        <div class="section-head">
-          <div><h3>Matérias</h3><p class="section-sub">${state.subjects.length} matéria(s) em ${esc(semester.name)}. Clique para abrir.</p></div>
-          ${can('materias.editar') ? '<button class="btn btn-primary" data-act="new-subject">+ Nova matéria</button>' : ''}
+      <aside class="home-side">
+        <div class="side-card">
+          <h4>Por matéria</h4>
+          ${subjectLoad(d)}
         </div>
-        ${subjectTable()}
-      </section>`}`;
+        ${d.roles.length ? `
+          <div class="side-card">
+            <h4>Suas funções</h4>
+            <div class="role-chips">${d.roles.map(([name, n]) => `<span class="pill">${esc(name)} <span class="num">${n}</span></span>`).join('')}</div>
+          </div>` : ''}
+        <div class="side-card">
+          <h4>Turma</h4>
+          <div class="class-pulse">
+            <div><span class="num">${o.open_tasks ?? 0}</span><span>abertas</span></div>
+            <div><span class="num${o.late_tasks ? ' alert' : ''}">${o.late_tasks ?? 0}</span><span>atrasadas</span></div>
+            <div><span class="num${unassigned ? ' alert' : ''}">${unassigned}</span><span>sem responsável</span></div>
+          </div>
+          <button class="btn btn-sm btn-ghost side-link" data-act="go-team">Entregas por integrante &rarr;</button>
+        </div>
+      </aside>
+    </div>`;
 
   bindSemesterPicker(view);
-  bindSubjects(view);
-  view.querySelectorAll('[data-member]').forEach((row) => {
-    const open = () => {
-      Object.assign(state.filters, { assignee: row.dataset.member, subject: '', status: '', q: '', showDone: false });
-      goTo('tarefas');
+  bindTaskRows(view, state.tasks, refresh);
+
+  view.querySelectorAll('[data-open-task]').forEach((el) => {
+    el.onclick = () => {
+      const task = state.tasks.find((t) => t.id === Number(el.dataset.openTask));
+      if (!task) return;
+      if (can('tarefas.editar')) openTaskForm(task, refresh);
+      else openSubjectModal(task.subject_id, 'tasks');
     };
-    row.onclick = open;
-    row.onkeydown = (e) => { if (e.key === 'Enter') open(); };
   });
+  view.querySelectorAll('[data-open-subject]').forEach((el) => {
+    el.onclick = () => openSubjectModal(Number(el.dataset.openSubject), 'tasks');
+  });
+  view.querySelector('[data-act="my-tasks"]')?.addEventListener('click', () => showTasksOf(state.user.id));
+  view.querySelector('[data-act="go-team"]').onclick = () => goTo('equipe');
 }
 
 /* ------------------------------------------------------------ materias */
@@ -570,36 +809,6 @@ const noSemester = () => `
 const classDays = (s) => s.classes
   .map((c) => WEEKDAYS[c.weekday].slice(0, 3))
   .filter((v, i, a) => a.indexOf(v) === i);
-
-/** Lista compacta da Visao geral: uma linha por materia, colunas alinhadas. */
-function subjectTable() {
-  if (!state.subjects.length) {
-    return `<div class="empty"><strong>Nenhuma matéria neste semestre</strong>Cadastre a primeira em + Nova matéria.</div>`;
-  }
-  return `
-    <div class="table-wrap"><table class="table wide">
-      <thead><tr>
-        <th>Matéria</th><th>Professor</th><th>Aulas</th><th class="c">Tarefas abertas</th><th>Próximo prazo</th><th></th>
-      </tr></thead>
-      <tbody>
-        ${state.subjects.map((s) => {
-          const due = dueLabel(s.next_due);
-          const days = classDays(s);
-          return `<tr class="row-link" data-subject="${s.id}" tabindex="0" title="Abrir ${esc(s.name)}">
-            <td><div class="member-cell">
-              <span class="subject-dot" style="width:10px;height:10px;background:${esc(s.color)}"></span>
-              <div class="subject-name"><strong>${esc(s.name)}</strong>${s.code ? `<span class="mono muted-text">${esc(s.code)}</span>` : ''}</div>
-            </div></td>
-            <td>${s.professor ? esc(s.professor) : '<span class="muted-text">--</span>'}</td>
-            <td>${days.length ? esc(days.join(' · ')) : '<span class="muted-text">--</span>'}</td>
-            <td class="c">${s.open_tasks ? `<span class="num">${s.open_tasks}</span>` : '<span class="num zero">0</span>'}</td>
-            <td>${due ? `<span class="pill ${due.tone}">${esc(due.text)}</span>` : '<span class="muted-text">Em dia</span>'}</td>
-            <td style="text-align:right">${can('materias.editar') ? `<button class="btn btn-sm" data-edit-subject="${s.id}">Editar</button>` : ''}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table></div>`;
-}
 
 /** Aba Materias: os cartoes, com a imagem de capa de cada materia. */
 function viewSubjects(view) {
@@ -916,6 +1125,14 @@ function viewTeam(view) {
       </tbody>
     </table></div>
 
+    ${state.semesterId ? `
+      <section class="home-section">
+        <div class="section-head">
+          <div><h3>Entregas por integrante</h3><p class="section-sub">Carga de cada pessoa no semestre selecionado. Clique para ver as tarefas.</p></div>
+        </div>
+        ${teamTable()}
+      </section>` : ''}
+
     ${canInvite ? invitesSection() : ''}
 
     ${canRoles ? `
@@ -943,6 +1160,7 @@ function viewTeam(view) {
       ${taskRolesSection()}` : ''}`;
 
   view.querySelector('[data-act="new-user"]')?.addEventListener('click', () => openUserForm(null, refresh));
+  bindMemberRows(view);
   view.querySelector('[data-act="invite"]')?.addEventListener('click', () => openInviteForm(refresh));
 
   view.querySelectorAll('[data-act="edit-user"]').forEach((b) => {

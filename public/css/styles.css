@@ -627,6 +627,106 @@ input[type="color"] {
 .home-section .section-head { align-items: flex-end; gap: var(--spacing-16); }
 .section-sub { margin: var(--spacing-4) 0 0; color: var(--muted); font-size: var(--text-body-sm); }
 
+/* ============================ visao geral: area pessoal ============================ */
+/* Topo: entrega mais urgente ao lado dos numeros da pessoa (2x2). */
+.home-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--spacing-12); }
+.home-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 0; }
+.stat-bar { height: 4px; margin-top: var(--spacing-6); border-radius: 2px; background: var(--surface-2); box-shadow: var(--shadow-subtle-2); overflow: hidden; }
+.stat-bar span { display: block; height: 100%; background: var(--text); }
+
+.focus-card {
+  display: flex; align-items: center; gap: var(--spacing-20);
+  min-height: calc(var(--tile-h) * 2 + var(--spacing-12)); padding: var(--spacing-24);
+  text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  background: var(--surface); border: 0; border-left: 4px solid var(--card-color, var(--text));
+  border-radius: var(--radius-cards); box-shadow: var(--shadow-subtle);
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+button.focus-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-subtle), 0 18px 32px -20px color-mix(in srgb, var(--card-color, var(--text)) var(--glow-strength), transparent);
+}
+.focus-card.calm { cursor: default; border-left-color: var(--border); }
+.focus-count { flex: none; display: flex; flex-direction: column; align-items: center; min-width: 88px; }
+.focus-big {
+  font-size: var(--text-display); line-height: 1; letter-spacing: var(--tracking-display);
+  font-weight: var(--font-weight-semibold);
+}
+.focus-card.alert .focus-big { color: var(--alert); }
+.focus-unit { margin-top: var(--spacing-6); font-size: 13px; color: var(--muted); }
+.focus-main { min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-4); }
+.focus-kicker {
+  font-family: var(--mono-font); font-size: var(--text-caption); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--icon);
+}
+.focus-card.alert .focus-kicker { color: var(--alert); }
+.focus-title { font-size: var(--text-heading-sm); line-height: var(--leading-heading-sm); font-weight: var(--font-weight-semibold); }
+.focus-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-6); color: var(--muted); font-size: 13px; }
+
+/* Sua semana: 7 colunas a partir de hoje. */
+.week-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--spacing-8); }
+.day-col {
+  display: flex; flex-direction: column; gap: var(--spacing-6); min-height: 200px;
+  padding: var(--spacing-12); background: var(--surface);
+  border-radius: var(--radius-cards); box-shadow: var(--shadow-subtle);
+}
+.day-col.today { box-shadow: var(--shadow-subtle), 0 0 0 2px var(--text); }
+.day-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-4); }
+.day-name { font-weight: var(--font-weight-semibold); }
+.day-date { font-family: var(--mono-font); font-size: var(--text-caption); color: var(--icon); }
+.day-load { height: 4px; border-radius: 2px; background: var(--surface-2); box-shadow: var(--shadow-subtle-2); overflow: hidden; }
+.day-load span { display: block; height: 100%; background: var(--text); }
+.day-count { font-size: var(--text-caption); font-family: var(--mono-font); color: var(--icon); }
+.day-col.busy .day-count { color: var(--text); }
+.day-task, .day-class {
+  display: block; width: 100%; padding: var(--spacing-6) var(--spacing-8);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  text-align: left; font: inherit; font-size: 13px; color: var(--text); cursor: pointer;
+  border: 0; border-left: 3px solid var(--card-color, var(--text)); border-radius: var(--radius-buttons);
+}
+.day-task { background: var(--selected); font-weight: var(--font-weight-medium); }
+.day-class { background: transparent; color: var(--muted); }
+.day-task:hover, .day-class:hover { background: color-mix(in srgb, var(--card-color, var(--text)) 14%, transparent); color: var(--text); }
+.day-class .mono { font-size: var(--text-caption); }
+
+/* Prazos (largo) + coluna lateral com os resumos curtos. */
+.home-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: var(--spacing-24); align-items: start; }
+.home-side { margin-top: var(--spacing-40); display: flex; flex-direction: column; gap: var(--spacing-12); }
+.side-card {
+  padding: var(--card-padding); background: var(--surface);
+  border-radius: var(--radius-cards); box-shadow: var(--shadow-subtle);
+}
+.side-card h4 { margin-bottom: var(--spacing-12); }
+.side-empty { margin: 0; font-size: 13px; }
+.load-row {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 24px; align-items: center; gap: var(--spacing-8);
+  width: 100%; padding: var(--spacing-6) var(--spacing-4); border: 0; border-radius: var(--radius-buttons);
+  background: transparent; font: inherit; color: var(--text); text-align: left; cursor: pointer;
+}
+.load-row:hover { background: var(--selected); }
+.load-row .num { text-align: right; }
+.load-name { display: flex; align-items: center; gap: var(--spacing-6); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
+.load-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.load-bar span { display: block; height: 100%; border-radius: 3px; }
+.role-chips { display: flex; flex-wrap: wrap; gap: var(--spacing-6); }
+.class-pulse { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-8); }
+.class-pulse > div { display: flex; flex-direction: column; gap: 2px; }
+.class-pulse .num { font-size: var(--text-heading-sm); }
+.class-pulse span:not(.num) { font-size: var(--text-caption); color: var(--muted); }
+.side-link { margin-top: var(--spacing-12); padding-left: 0; }
+
+@media (max-width: 1100px) {
+  .week-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .home-top, .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-side { margin-top: 0; }
+  .week-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .day-col { min-height: 0; }
+  .focus-card { min-height: 0; padding: var(--spacing-20); }
+  .focus-big { font-size: var(--text-heading-lg); }
+}
+
 /* ============================ modal ============================ */
 .overlay {
   position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .40);

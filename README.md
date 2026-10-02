@@ -84,21 +84,25 @@ A coluna antiga `users.role` (admin/member) continua sendo preenchida, por compa
 
 ## Telas
 
-- **Visão geral** (inicial): o seletor de semestre, o painel do semestre (matérias, tarefas
-  abertas, atrasadas, próximos 7 dias), a tabela de **integrantes** — cargo, entregas a fazer,
-  em andamento, atrasadas, que vencem em 7 dias, concluídas e a próxima entrega de cada um
-  (clicar na linha abre as tarefas da pessoa) — e a lista das matérias do semestre.
+- **Visão geral** (inicial): a área de quem está logado. Saudação com uma frase de situação
+  ("Você tem 1 entrega atrasada e 2 nos próximos 7 dias"), a entrega mais urgente em destaque,
+  os números da pessoa (atrasadas, vencem em 7 dias, em andamento, % concluído), **Sua semana**
+  (os próximos 7 dias, com a carga de cada dia, as entregas e as aulas da turma), **Seus prazos**
+  e, ao lado, a carga por matéria, as funções da pessoa nas tarefas e um resumo da turma.
 - **Matérias**: os cartões das matérias, com a imagem de capa de cada uma, e o próprio seletor
-  de semestre. Clicar no cartão (ou na linha da lista da Visão geral) abre o modal com as abas
-  **Informações**, **Tarefas**, **Resumos** e **Datas**; o botão **Editar** (no cartão, na linha
-  ou no topo do modal) altera os dados da matéria.
+  de semestre. Clicar no cartão abre o modal com as abas
+  **Informações**, **Tarefas**, **Resumos** e **Datas**; o botão **Editar** (no cartão ou no topo
+  do modal) altera os dados da matéria.
 - **Imagens da matéria**: no formulário da matéria dá para escolher uma imagem para o cartão e
   outra para o fundo atrás do modal aberto (PNG, JPG ou WEBP, até 4MB). Os arquivos ficam no
   banco e são apagados junto com a matéria.
 - **Tarefas**: lista de tudo do semestre, com busca e filtros por matéria, situação e responsável.
-  Marcar como concluída é um clique na caixa à esquerda.
+  Marcar como concluída é um clique na caixa à esquerda. **Duplicar** abre uma tarefa nova já
+  preenchida com a estrutura de outra.
 - **Agenda**: grade da semana com as aulas de cada matéria e os próximos prazos.
-- **Equipe**: quem participa e o cargo de cada um. Admin adiciona, edita e remove pessoas, cria,
+- **Equipe**: quem participa e o cargo de cada um, e a tabela de **entregas por integrante**
+  (a fazer, em andamento, atrasadas, 7 dias, concluídas e a próxima entrega; a linha abre as
+  tarefas da pessoa). Admin adiciona, edita e remove pessoas, cria,
   renomeia e exclui **cargos** (Líder, Revisor...) e atribui um cargo a cada integrante — dá para
   criar o cargo na hora, pelo próprio cadastro da pessoa. O cargo é só um rótulo: o que a pessoa
   pode fazer continua vindo do perfil (admin/membro).
