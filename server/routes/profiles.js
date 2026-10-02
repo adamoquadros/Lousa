@@ -102,7 +102,10 @@ profilesRouter.delete('/:id', manage, async (req, res) => {
   }
   if (profile.members || profile.pending_invites) {
     return res.status(409).json({
-      error: `Há ${profile.members} pessoa(s) e ${profile.pending_invites} convite(s) com esse perfil. Mude-os para outro perfil antes de excluir.`,
+      error: `Esse perfil ainda está em uso (${[
+        profile.members && `${profile.members} ${Number(profile.members) === 1 ? 'pessoa' : 'pessoas'}`,
+        profile.pending_invites && `${profile.pending_invites} ${Number(profile.pending_invites) === 1 ? 'convite' : 'convites'}`,
+      ].filter(Boolean).join(' e ')}). Passe-os para outro perfil antes de excluir.`,
     });
   }
   await run('DELETE FROM profiles WHERE id = ?', id);

@@ -64,6 +64,9 @@ export function dueLabel(iso, done = false) {
   return { text: date, tone: 'muted' };
 }
 
+/** "1 tarefa" / "3 tarefas": numero com o substantivo concordando. */
+export const plural = (n, one, many) => `${n} ${Number(n) === 1 ? one : many}`;
+
 export const initials = (name) => String(name || '?')
   .trim().split(/\s+/).slice(0, 2).map((p) => p[0] ?? '').join('').toUpperCase() || '?';
 

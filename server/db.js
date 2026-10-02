@@ -55,7 +55,7 @@ export const pool = dbConfigured ? new pg.Pool({
   idleTimeoutMillis: 30_000,
 }) : null;
 
-pool?.on('error', (err) => console.error('Conexao ociosa com o banco caiu:', err.message));
+pool?.on('error', (err) => console.error('Conexão ociosa com o banco caiu:', err.message));
 
 /** Dentro de tx(), as queries usam a conexao da transacao sem precisar passa-la. */
 const txClient = new AsyncLocalStorage();

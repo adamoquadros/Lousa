@@ -2,7 +2,7 @@ import { api } from './api.js';
 import { aiPanelHtml, bindAiPanel } from './ai-panel.js';
 import {
   KINDS, PALETTE, PRIORITIES, STATUSES, WEEKDAYS, WEEKDAYS_SHORT,
-  avatar, confirmDialog, dueLabel, esc, formatDate, openModal, setModalBackdrop, showFormError, toast, withBusy,
+  avatar, confirmDialog, dueLabel, esc, formatDate, openModal, plural, setModalBackdrop, showFormError, toast, withBusy,
 } from './ui.js';
 
 /** Contexto injetado pelo app.js (evita import circular). */
@@ -93,7 +93,7 @@ export async function openSubjectModal(subjectId, initialTab = 'info') {
         root.querySelector('[data-slot="dot"]').style.background = subject.color;
         root.querySelector('[data-slot="title"]').textContent = subject.name;
         root.querySelector('[data-slot="subtitle"]').textContent = [
-          subject.code, subject.professor, `${subject.tasks.filter((t) => t.status !== 'concluida').length} tarefa(s) aberta(s)`,
+          subject.code, subject.professor, plural(subject.tasks.filter((t) => t.status !== 'concluida').length, 'tarefa aberta', 'tarefas abertas'),
         ].filter(Boolean).join(' · ');
         body.innerHTML = TAB_RENDERERS[tab](subject);
         TAB_BINDERS[tab]?.(body, subject, reload, close);
@@ -142,7 +142,7 @@ const TAB_RENDERERS = {
 
   tasks: (s) => `
     <div class="section-head">
-      <strong>${s.tasks.length} tarefa(s)</strong>
+      <strong>${plural(s.tasks.length, 'tarefa', 'tarefas')}</strong>
       ${can('tarefas.editar') ? '<button class="btn btn-primary btn-sm" data-act="new-task">+ Nova tarefa</button>' : ''}
     </div>
     ${s.tasks.length ? `<div class="list">${s.tasks.map(taskRow).join('')}</div>`
@@ -150,7 +150,7 @@ const TAB_RENDERERS = {
 
   notes: (s) => `
     <div class="section-head">
-      <strong>${s.notes.length} resumo(s)</strong>
+      <strong>${plural(s.notes.length, 'resumo', 'resumos')}</strong>
       ${can('resumos.editar') ? '<button class="btn btn-primary btn-sm" data-act="new-note">+ Novo resumo</button>' : ''}
     </div>
     ${aiPanelHtml()}
@@ -670,7 +670,7 @@ export function openTaskRoleForm(role, onSaved) {
       <div class="modal-head">
         <div><h3>${editing ? 'Renomear função' : 'Nova função'}</h3>
         <p>${editing
-          ? `Usada em ${role.uses} atribuição(ões); todas passam a mostrar o nome novo.`
+          ? `Usada em ${plural(role.uses, 'atribuição', 'atribuições')}; ${role.uses === 1 ? 'ela passa' : 'todas passam'} a mostrar o nome novo.`
           : 'Ex.: Revisor, Quem apresenta, Quem imprime. Aparece ao escolher as pessoas de uma tarefa.'}</p></div>
         <div class="spacer"></div><button class="btn btn-ghost btn-sm" data-close>&times;</button>
       </div>
@@ -902,7 +902,7 @@ export function openPositionForm(position, onSaved) {
       <div class="modal-head">
         <div><h3>${editing ? 'Renomear cargo' : 'Novo cargo'}</h3>
         <p>${editing
-          ? `${position.members} pessoa(s) com esse cargo recebem o nome novo.`
+          ? `${position.members === 1 ? '1 pessoa com esse cargo recebe' : `${position.members} pessoas com esse cargo recebem`} o nome novo.`
           : 'Ex.: Líder, Revisor, Apresentador. Depois, atribua um a cada pessoa.'}</p></div>
         <div class="spacer"></div><button class="btn btn-ghost btn-sm" data-close>&times;</button>
       </div>

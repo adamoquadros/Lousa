@@ -11,7 +11,7 @@
  * (editavel) para copiar ou abrir no Claude, ChatGPT ou Gemini.
  */
 import { api } from './api.js';
-import { confirmDialog, esc, openModal, toast } from './ui.js';
+import { confirmDialog, esc, openModal, plural, toast } from './ui.js';
 
 const ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp,.heic,.heif';
 const ICON = (mime) => (mime === 'application/pdf' ? 'PDF' : 'IMG');
@@ -208,10 +208,11 @@ export async function bindAiPanel(body, subject, reload, rights = {}) {
     meter.innerHTML = `
       <div class="ai-meter-bar"><span style="width:${Math.min(100, (chars / max) * 100).toFixed(1)}%"></span></div>
       <div class="ai-meter-text">
-        ${picked.length} arquivo(s) marcado(s) · ${thousands(chars)} de ${thousands(max)} caracteres
+        ${plural(picked.length, 'arquivo marcado', 'arquivos marcados')} · ${thousands(chars)} de ${thousands(max)} caracteres
         ${over ? ' · <strong>passou do limite: o fim do material será cortado</strong>' : ''}
         ${unread ? ` · ${unread} sem texto lido (${info.enabled && canGenerate
-          ? 'vai como arquivo na geração automática' : 'anexe direto no chat'})` : ''}
+          ? (unread === 1 ? 'vai como arquivo' : 'vão como arquivos') + ' na geração automática'
+          : (unread === 1 ? 'anexe-o' : 'anexe-os') + ' direto no chat'})` : ''}
       </div>`;
   }
 
@@ -235,7 +236,7 @@ export async function bindAiPanel(body, subject, reload, rights = {}) {
 
     const total = files.reduce((sum, f) => sum + f.size, 0);
     filesBox.innerHTML = `
-      <div class="ai-files-head muted-text">${files.length} arquivo(s) · ${humanSize(total)} ·
+      <div class="ai-files-head muted-text">${plural(files.length, 'arquivo', 'arquivos')} · ${humanSize(total)} ·
         marque o que deve entrar no prompt</div>
       ${files.map((f) => {
         const read = readLabel(f);
@@ -315,7 +316,7 @@ export async function bindAiPanel(body, subject, reload, rights = {}) {
           failed.push(`${file.name} (${err.message})`);
         }
       }
-      if (ok) toast(`${ok} arquivo(s) anexado(s).`);
+      if (ok) toast(`${plural(ok, 'arquivo anexado', 'arquivos anexados')}.`);
       if (failed.length) toast(`Não foi possível anexar: ${failed.join('; ')}`, 'error');
       await renderFiles();
     } finally {
@@ -472,7 +473,7 @@ async function runGenerate(btn, buttons, subject, preset, reload, opts) {
   try {
     const note = await api.aiGenerate(subject.id, preset, opts);
     const used = note.used_attachments?.length || 0;
-    toast(used ? `Resumo gerado a partir de ${used} arquivo(s).` : 'Resumo gerado.');
+    toast(used ? `Resumo gerado a partir de ${plural(used, 'arquivo', 'arquivos')}.` : 'Resumo gerado.');
     // Arquivo que ficou de fora e informacao demais para um toast secundario
     // sumir com ela: avisa separado, nomeando o que nao entrou.
     if (note.skipped_attachments?.length) {
@@ -583,7 +584,7 @@ async function showText(attachmentId) {
   try { data = await api.attachmentText(attachmentId); }
   catch (err) { return toast(err.message, 'error'); }
   const how = data.method === 'pdf'
-    ? `lido direto do PDF${data.pages ? ` · ${data.pages} página(s)` : ''}`
+    ? `lido direto do PDF${data.pages ? ` · ${plural(data.pages, 'página', 'páginas')}` : ''}`
     : 'transcrito pela IA: confira nomes e números';
 
   openModal({

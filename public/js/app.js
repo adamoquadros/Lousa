@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import {
-  KINDS, STATUSES, WEEKDAYS, WEEKDAYS_SHORT, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, openModal, parseDate, toast, todayISO,
+  KINDS, STATUSES, WEEKDAYS, WEEKDAYS_SHORT, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, openModal, parseDate, plural, toast, todayISO,
 } from './ui.js';
 import {
   bindTaskRows, initModals, openInviteForm, openPasswordForm, openPositionForm, openProfileForm, openSemesterForm, openTaskRoleForm, openProfileEditor,
@@ -215,7 +215,7 @@ function renderAuth({ setup }) {
       state.user = user;
       await loadAll();
       renderShell();
-      toast(`Bem-vindo(a), ${user.name.split(' ')[0]}!`);
+      toast(`Boas-vindas, ${user.name.split(' ')[0]}!`);
     } catch (err) {
       fail(err.message);
       button.disabled = false;
@@ -245,7 +245,7 @@ async function renderInvite(token) {
 
   root.innerHTML = authPage(`
     <form class="auth-card" id="invite-form" novalidate>
-      <h2>Você foi convidado(a)</h2>
+      <h2>Você recebeu um convite</h2>
       <p class="auth-sub">${esc(info.invited_by_name || 'A equipe')} convidou você para a Lousa${info.position_name
         ? ` como <strong>${esc(info.position_name)}</strong>` : ''}. Escolha seu nome e uma senha para entrar.</p>
       <div data-slot="error"></div>
@@ -275,7 +275,7 @@ async function renderInvite(token) {
       state.user = user;
       await loadAll();
       renderShell();
-      toast(`Bem-vindo(a), ${user.name.split(' ')[0]}!`);
+      toast(`Boas-vindas, ${user.name.split(' ')[0]}!`);
     } catch (err) {
       fail(err.message);
       button.disabled = false;
@@ -505,7 +505,7 @@ function teamTable() {
         }).join('')}
       </tbody>
     </table></div>
-    ${unassigned ? `<p class="hint table-note">${unassigned} tarefa(s) aberta(s) sem responsável.</p>` : ''}`;
+    ${unassigned ? `<p class="hint table-note">${plural(unassigned, 'tarefa aberta', 'tarefas abertas')} sem responsável.</p>` : ''}`;
 }
 
 /** Abre a lista de Tarefas ja filtrada por uma pessoa. */
@@ -525,7 +525,6 @@ function bindMemberRows(view) {
 /* ------------------------------------------------------------ visao geral: area pessoal */
 
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const dueISO = (t) => (t.due_date ? String(t.due_date).slice(0, 10) : null);
 
 function greeting() {
@@ -577,12 +576,12 @@ function myDashboard() {
 function headline(d) {
   if (!d.mine.length) return 'Nenhuma tarefa com você neste semestre.';
   if (!d.open.length) return 'Tudo em dia: nenhuma entrega pendente com você.';
-  const parts = [];
-  if (d.late.length) parts.push(plural(d.late.length, 'entrega atrasada', 'entregas atrasadas'));
-  parts.push(d.week.length
-    ? `${plural(d.week.length, 'entrega', 'entregas')} nos próximos 7 dias`
-    : 'nada vencendo nos próximos 7 dias');
-  return `Você tem ${parts.join(' e ')}.`;
+  const late = plural(d.late.length, 'entrega atrasada', 'entregas atrasadas');
+  const week = `${plural(d.week.length, 'entrega', 'entregas')} nos próximos 7 dias`;
+  if (d.late.length && d.week.length) return `Você tem ${late} e ${week}.`;
+  if (d.late.length) return `Você tem ${late}. Nos próximos 7 dias, nenhuma entrega sua vence.`;
+  if (d.week.length) return `Você tem ${week}.`;
+  return 'Nenhuma entrega sua vence nos próximos 7 dias.';
 }
 
 /** Destaque do topo: a entrega mais urgente (atrasada antes, depois a proxima). */
@@ -740,7 +739,7 @@ function monthGrid(year, month, selected) {
               ${classes.slice(0, 4).map((c) => `<span class="cal-class" style="background:${esc(c.subject.color)}"></span>`).join('')}
             </span>
             ${open.length ? `<span class="cal-due${urgent ? ' alert' : ''}${mine ? ' mine' : ''}"
-              title="${plural(open.length, 'entrega', 'entregas')}${mine ? `, ${mine} sua(s)` : ''}">${open.length}</span>` : ''}
+              title="${plural(open.length, 'entrega', 'entregas')}${mine ? `, ${plural(mine, 'sua', 'suas')}` : ''}">${open.length}</span>` : ''}
           </button>`;
       }).join('')}
     </div>`;
@@ -1007,7 +1006,7 @@ function viewSubjects(view) {
     <div class="page-head">
       <div>
         <h2>Matérias</h2>
-        <p>${semester ? `${state.subjects.length} matéria(s) em ${esc(semester.name)}` : 'Comece criando um semestre.'}</p>
+        <p>${semester ? `${plural(state.subjects.length, 'matéria', 'matérias')} em ${esc(semester.name)}` : 'Comece criando um semestre.'}</p>
       </div>
       <div class="spacer"></div>
       ${semesterPicker()}
@@ -1055,9 +1054,9 @@ function subjectCard(s) {
     days.length ? `<span class="pill">${esc(days.join(' · '))}</span>` : null,
     due ? `<span class="pill ${due.tone}">${esc(due.text)}</span>` : null,
     s.open_tasks
-      ? `<span class="pill strong">${s.open_tasks} tarefa(s)</span>`
+      ? `<span class="pill strong">${plural(s.open_tasks, 'tarefa', 'tarefas')}</span>`
       : '<span class="pill muted">Em dia</span>',
-    s.note_count ? `<span class="pill muted">${s.note_count} resumo(s)</span>` : null,
+    s.note_count ? `<span class="pill muted">${plural(s.note_count, 'resumo', 'resumos')}</span>` : null,
   ].filter(Boolean);
 
   // O Editar fica fora do cartao: botao dentro de botao nao e HTML valido.
@@ -1092,7 +1091,7 @@ function viewTasks(view) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h2>Tarefas</h2><p>${visible.length} de ${state.tasks.length} tarefa(s)</p></div>
+      <div><h2>Tarefas</h2><p>${visible.length} de ${plural(state.tasks.length, 'tarefa', 'tarefas')}</p></div>
       <div class="spacer"></div>
       ${can('tarefas.editar') ? '<button class="btn btn-primary" data-act="new-task">+ Nova tarefa</button>' : ''}
     </div>
@@ -1162,7 +1161,7 @@ function viewAgenda(view) {
     .slice(0, 12);
 
   view.innerHTML = `
-    <div class="page-head"><div><h2>Agenda</h2><p>Aulas da semana e próximos prazos</p></div></div>
+    <div class="page-head"><div><h2>Agenda</h2><p>Aulas da semana e próximos prazos.</p></div></div>
     <div class="week">
       ${days.map((d) => {
         const list = (classesByDay.get(d) ?? []).sort((a, b) => (a.starts_at ?? '').localeCompare(b.starts_at ?? ''));
@@ -1206,7 +1205,7 @@ function taskRolesSection() {
           <tbody>
             ${roles.map((r) => `<tr>
               <td><strong>${esc(r.name)}</strong></td>
-              <td>${r.uses ? `${r.uses} atribuição(ões)` : '<span class="muted-text">Ainda não usada</span>'}</td>
+              <td>${r.uses ? plural(r.uses, 'atribuição', 'atribuições') : '<span class="muted-text">Ainda não usada</span>'}</td>
               <td style="text-align:right;white-space:nowrap">
                 <button class="btn btn-sm" data-act="edit-task-role" data-id="${r.id}">Renomear</button>
                 <button class="btn btn-sm btn-danger" data-act="del-task-role" data-id="${r.id}">Excluir</button>
@@ -1403,7 +1402,7 @@ function viewTeam(view) {
       const ok = await confirmDialog({
         title: `Excluir o cargo ${position.name}?`,
         message: position.members
-          ? `${position.members} pessoa(s) ficam sem cargo. As contas não mudam.`
+          ? `${position.members === 1 ? '1 pessoa fica' : `${position.members} pessoas ficam`} sem cargo. As contas não mudam.`
           : 'Ninguém tem esse cargo.',
         confirmText: 'Excluir cargo',
       });
@@ -1429,14 +1428,14 @@ function viewProfiles(view) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h2>Perfis e acesso</h2><p>Quem pode fazer o quê, e quem manda em quem.</p></div>
+      <div><h2>Perfis e acesso</h2><p>Quem pode fazer o quê e quem manda em quem.</p></div>
       <div class="spacer"></div>
       ${manage ? '<button class="btn btn-primary" data-act="new-profile">+ Novo perfil</button>' : ''}
     </div>
 
     <div class="rules">
       <div><strong>Hierarquia por nível.</strong> Quanto menor o número, mais alto o perfil. O Administrador fica no topo (nível 0).</div>
-      <div><strong>Cada um gerencia quem está abaixo.</strong> Só se edita, remove ou convida pessoas de nível maior que o seu, e só se dá perfis abaixo do seu.</div>
+      <div><strong>Cada um gerencia quem está abaixo.</strong> Cada pessoa só edita, remove ou convida quem tem nível maior que o dela, e só concede perfis abaixo do seu.</div>
       <div><strong>Ninguém dá o que não tem.</strong> Um perfil só pode receber direitos que quem o edita também tem. Ninguém muda o próprio perfil.</div>
       <div><strong>Sempre existe um Administrador.</strong> Esse perfil tem todos os direitos, não pode ser alterado nem excluído, e o app não deixa rebaixar o último.</div>
     </div>
@@ -1459,7 +1458,7 @@ function viewProfiles(view) {
               <div class="ladder-meta">
                 ${p.permissions.length} de ${groups.flatMap((g) => g.items).length} direitos ·
                 ${members.length ? esc(members.map((u) => u.name.split(' ')[0]).join(', ')) : 'ninguém'}
-                ${p.pending_invites ? ` · ${p.pending_invites} convite(s) pendente(s)` : ''}
+                ${p.pending_invites ? ` · ${plural(p.pending_invites, 'convite pendente', 'convites pendentes')}` : ''}
               </div>
             </div>
             <div class="ladder-actions">
@@ -1500,7 +1499,7 @@ function viewProfiles(view) {
       const ok = await confirmDialog({
         title: `Excluir o perfil ${profile.name}?`,
         message: profile.members
-          ? `${profile.members} pessoa(s) usam esse perfil: mude-as para outro antes de excluir.`
+          ? `${profile.members === 1 ? '1 pessoa usa' : `${profile.members} pessoas usam`} esse perfil: mude-as para outro antes de excluir.`
           : 'Ninguém usa esse perfil.',
         confirmText: 'Excluir perfil',
       });
