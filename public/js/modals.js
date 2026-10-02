@@ -286,7 +286,9 @@ export function taskRow(task, showSubject = false) {
         </div>
       </div>
       <div class="task-actions">
-        ${can('tarefas.editar') ? '<button class="btn btn-ghost btn-sm" data-act="edit" title="Editar">Editar</button>' : ''}
+        ${can('tarefas.editar') ? `
+          <button class="btn btn-ghost btn-sm" data-act="edit" title="Editar">Editar</button>
+          <button class="btn btn-ghost btn-sm" data-act="duplicate" title="Criar uma nova tarefa a partir desta">Duplicar</button>` : ''}
         ${canManage(task, 'tarefas.excluir') ? '<button class="btn btn-ghost btn-sm btn-danger" data-act="del" title="Excluir">&times;</button>' : ''}
       </div>
     </div>`;
@@ -304,6 +306,7 @@ export function bindTaskRows(root, tasks, reload) {
       catch (err) { toast(err.message, 'error'); }
     };
     row.querySelector('[data-act="edit"]')?.addEventListener('click', () => openTaskForm(task, reload));
+    row.querySelector('[data-act="duplicate"]')?.addEventListener('click', () => openTaskForm(task, reload, { duplicate: true }));
     row.querySelector('[data-act="del"]')?.addEventListener('click', async () => {
       const ok = await confirmDialog({ title: 'Excluir tarefa?', message: esc(task.title), confirmText: 'Excluir' });
       if (!ok) return;
@@ -511,7 +514,15 @@ function assignmentRowHtml(a = {}) {
     </div>`;
 }
 
-export function openTaskForm(task, onSaved) {
+/**
+ * duplicate: abre como tarefa NOVA preenchida com a estrutura de `task`
+ * (materia, tipo, prioridade, prazo, descricao, pessoas e funcoes). A copia
+ * volta para "Pendente" e ganha "(cópia)" no titulo, para nao se confundir.
+ */
+export function openTaskForm(source, onSaved, { duplicate = false } = {}) {
+  const task = duplicate
+    ? { ...source, id: undefined, status: 'pendente', title: `${source.title} (cópia)` }
+    : source;
   const editing = Boolean(task?.id);
   const subjects = ctx.state.subjects;
   // Tarefa nova ja vem com uma linha na primeira funcao (Responsável, por padrao).
@@ -522,8 +533,10 @@ export function openTaskForm(task, onSaved) {
   openModal({
     html: `
       <div class="modal-head">
-        <div><h3>${editing ? 'Editar tarefa' : 'Nova tarefa'}</h3>
-        <p>Defina o prazo, o tipo e quem faz o quê.</p></div>
+        <div><h3>${editing ? 'Editar tarefa' : duplicate ? 'Duplicar tarefa' : 'Nova tarefa'}</h3>
+        <p>${duplicate
+          ? `Cópia de “${esc(source.title)}”. Ajuste o que mudar (título, prazo...) e crie.`
+          : 'Defina o prazo, o tipo e quem faz o quê.'}</p></div>
         <div class="spacer"></div><button class="btn btn-ghost btn-sm" data-close>&times;</button>
       </div>
       <div class="modal-body">
@@ -614,7 +627,7 @@ export function openTaskForm(task, onSaved) {
             payload.assignments = await readAssignments();
             return editing ? api.updateTask(task.id, payload) : api.createTask(payload);
           });
-          toast(editing ? 'Tarefa atualizada.' : 'Tarefa criada.');
+          toast(editing ? 'Tarefa atualizada.' : duplicate ? 'Cópia criada.' : 'Tarefa criada.');
           close();
           await onSaved?.();
         } catch (err) { showFormError(root, err.message); }
