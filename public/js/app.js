@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import {
-  KINDS, STATUSES, WEEKDAYS, WEEKDAYS_SHORT, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, parseDate, toast, todayISO,
+  KINDS, STATUSES, WEEKDAYS, WEEKDAYS_SHORT, avatar, confirmDialog, daysUntil, dueLabel, esc, formatDate, openModal, parseDate, toast, todayISO,
 } from './ui.js';
 import {
   bindTaskRows, initModals, openInviteForm, openPasswordForm, openPositionForm, openProfileForm, openSemesterForm, openTaskRoleForm, openProfileEditor,
@@ -662,10 +662,10 @@ function weekStrip(d) {
         const name = i === 0 ? 'Hoje' : i === 1 ? 'Amanhã' : WEEKDAYS_SHORT[day.getDay()];
         return `
           <div class="day-col${i === 0 ? ' today' : ''}${tasks.length ? ' busy' : ''}">
-            <div class="day-head">
+            <button class="day-head" data-cal-day="${isoOf(day)}" title="Ver o dia no calendário">
               <span class="day-name">${name}</span>
               <span class="day-date">${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}</span>
-            </div>
+            </button>
             <div class="day-load" title="${plural(tasks.length, 'entrega', 'entregas')}">
               <span style="width:${(tasks.length / busiest) * 100}%"></span>
             </div>
@@ -680,6 +680,191 @@ function weekStrip(d) {
           </div>`;
       }).join('')}
     </div>`;
+}
+
+/* ------------------------------------------------------------ calendario */
+
+const MONTHS = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+/**
+ * O que acontece num dia: aulas (pelo dia da semana, dentro do periodo do
+ * semestre quando ele tem datas) e entregas da turma com prazo naquele dia.
+ */
+function dayAgenda(iso) {
+  const semester = state.semesters.find((s) => s.id === state.semesterId);
+  const inTerm = (!semester?.starts_on || iso >= String(semester.starts_on).slice(0, 10))
+    && (!semester?.ends_on || iso <= String(semester.ends_on).slice(0, 10));
+  const weekday = parseDate(iso).getDay();
+  const classes = inTerm ? state.subjects
+    .flatMap((s) => s.classes.filter((c) => c.weekday === weekday).map((c) => ({ ...c, subject: s })))
+    .sort((a, b) => (a.starts_at ?? '').localeCompare(b.starts_at ?? '')) : [];
+  const tasks = state.tasks.filter((t) => dueISO(t) === iso);
+  const isMine = (t) => t.assignees.some((a) => a.id === state.user.id);
+  return { classes, tasks, isMine };
+}
+
+/** Grade do mes: semanas comecando no domingo, com os dias vizinhos apagados. */
+function monthGrid(year, month, selected) {
+  const first = new Date(year, month, 1);
+  const start = new Date(year, month, 1 - first.getDay());
+  const today = todayISO();
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    return day;
+  });
+  // Seis semanas so quando o mes precisa; senao a ultima linha seria toda de fora.
+  const weeks = cells[35].getMonth() === month ? 6 : 5;
+
+  return `
+    <div class="cal-grid">
+      ${WEEKDAYS_SHORT.map((w) => `<div class="cal-weekday">${w}</div>`).join('')}
+      ${cells.slice(0, weeks * 7).map((day) => {
+        const iso = isoOf(day);
+        const { classes, tasks, isMine } = dayAgenda(iso);
+        const open = tasks.filter((t) => t.status !== 'concluida');
+        const mine = open.filter(isMine).length;
+        const urgent = open.some((t) => daysUntil(t.due_date) <= 0);
+        const cls = [
+          'cal-day',
+          day.getMonth() !== month ? 'outside' : '',
+          iso === today ? 'today' : '',
+          iso === selected ? 'selected' : '',
+        ].filter(Boolean).join(' ');
+        return `
+          <button class="${cls}" data-day="${iso}" aria-pressed="${iso === selected}"
+                  aria-label="${esc(formatDate(iso, { weekday: 'long', day: 'numeric', month: 'long' }))}">
+            <span class="cal-num">${day.getDate()}</span>
+            <span class="cal-marks">
+              ${classes.slice(0, 4).map((c) => `<span class="cal-class" style="background:${esc(c.subject.color)}"></span>`).join('')}
+            </span>
+            ${open.length ? `<span class="cal-due${urgent ? ' alert' : ''}${mine ? ' mine' : ''}"
+              title="${plural(open.length, 'entrega', 'entregas')}${mine ? `, ${mine} sua(s)` : ''}">${open.length}</span>` : ''}
+          </button>`;
+      }).join('')}
+    </div>`;
+}
+
+/** Painel do dia escolhido: aulas e entregas, cada uma clicavel. */
+function dayDetail(iso) {
+  const { classes, tasks, isMine } = dayAgenda(iso);
+  const title = formatDate(iso, { weekday: 'long', day: 'numeric', month: 'long' });
+  const n = daysUntil(iso);
+  const when = n === 0 ? 'Hoje' : n === 1 ? 'Amanhã' : n === -1 ? 'Ontem' : '';
+
+  return `
+    <div class="cal-detail-head">
+      ${when ? `<span class="focus-kicker">${when}</span>` : ''}
+      <h4>${esc(title.charAt(0).toUpperCase() + title.slice(1))}</h4>
+    </div>
+    <div class="cal-detail-section">
+      <h5>Aulas</h5>
+      ${classes.length ? classes.map((c) => `
+        <button class="cal-item" data-cal-subject="${c.subject.id}" style="--card-color:${esc(c.subject.color)}">
+          <strong>${esc(c.subject.name)}</strong>
+          <span>${c.starts_at ? `${esc(c.starts_at)}${c.ends_at ? ` – ${esc(c.ends_at)}` : ''}` : 'Horário a definir'}${c.room ? ` · sala ${esc(c.room)}` : ''}</span>
+        </button>`).join('') : '<p class="muted-text">Sem aula.</p>'}
+    </div>
+    <div class="cal-detail-section">
+      <h5>Entregas</h5>
+      ${tasks.length ? tasks.map((t) => {
+        const done = t.status === 'concluida';
+        return `
+        <button class="cal-item${done ? ' done' : ''}" data-cal-task="${t.id}" style="--card-color:${esc(t.subject_color)}">
+          <strong>${esc(t.title)}</strong>
+          <span>${esc(t.subject_name)} · ${esc(KINDS[t.kind] || t.kind)}</span>
+          <span class="cal-item-tags">
+            ${done ? '<span class="pill muted">Concluída</span>' : t.status === 'andamento' ? '<span class="pill muted">Em andamento</span>' : ''}
+            ${isMine(t) ? '<span class="pill strong">Sua</span>' : ''}
+            ${t.everyone?.length ? '<span class="pill">Todos</span>' : ''}
+            ${!done && daysUntil(t.due_date) < 0 ? '<span class="pill alert">Atrasada</span>' : ''}
+          </span>
+        </button>`;
+      }).join('') : '<p class="muted-text">Nenhuma entrega neste dia.</p>'}
+    </div>`;
+}
+
+/** Modal com o mes inteiro; o dia clicado abre os detalhes ao lado. */
+function openCalendar(startISO = todayISO()) {
+  let selected = startISO;
+  let cursor = parseDate(startISO);
+  cursor = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+
+  openModal({
+    html: `
+      <div class="modal-head">
+        <div><h3>Calendário</h3><p>Aulas da turma e entregas do semestre. Clique num dia para ver os detalhes.</p></div>
+        <div class="spacer"></div><button class="btn btn-ghost btn-sm" data-close>&times;</button>
+      </div>
+      <div class="modal-body cal-body">
+        <div class="cal-main">
+          <div class="cal-nav">
+            <button class="btn btn-sm" data-cal="prev" aria-label="Mês anterior">&larr;</button>
+            <strong class="cal-month" data-cal-month></strong>
+            <button class="btn btn-sm" data-cal="next" aria-label="Próximo mês">&rarr;</button>
+            <div class="spacer"></div>
+            <button class="btn btn-sm btn-ghost" data-cal="today">Hoje</button>
+          </div>
+          <div data-cal-grid></div>
+          <div class="cal-legend">
+            <span><span class="cal-class"></span>aula</span>
+            <span><span class="cal-due">2</span>entregas</span>
+            <span><span class="cal-due mine">2</span>tem entrega sua</span>
+            <span><span class="cal-due alert">2</span>hoje ou atrasada</span>
+          </div>
+        </div>
+        <aside class="cal-detail" data-cal-detail aria-live="polite"></aside>
+      </div>`,
+    onMount(root, close) {
+      root.classList.add('cal-modal');
+      const grid = root.querySelector('[data-cal-grid]');
+      const detail = root.querySelector('[data-cal-detail]');
+      const monthLabel = root.querySelector('[data-cal-month]');
+
+      const paintDetail = () => {
+        detail.innerHTML = dayDetail(selected);
+        // Abrir tarefa ou materia fecha o calendario: ao salvar, a tela recarrega.
+        detail.querySelectorAll('[data-cal-task]').forEach((el) => {
+          el.onclick = () => {
+            const task = state.tasks.find((t) => t.id === Number(el.dataset.calTask));
+            close();
+            if (task && can('tarefas.editar')) openTaskForm(task, refresh);
+            else if (task) openSubjectModal(task.subject_id, 'tasks');
+          };
+        });
+        detail.querySelectorAll('[data-cal-subject]').forEach((el) => {
+          el.onclick = () => { close(); openSubjectModal(Number(el.dataset.calSubject), 'dates'); };
+        });
+      };
+      const paint = () => {
+        monthLabel.textContent = `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
+        grid.innerHTML = monthGrid(cursor.getFullYear(), cursor.getMonth(), selected);
+        grid.querySelectorAll('[data-day]').forEach((el) => {
+          el.onclick = () => {
+            selected = el.dataset.day;
+            const day = parseDate(selected);
+            // Dia de outro mes (as pontas da grade) leva para aquele mes.
+            if (day.getMonth() !== cursor.getMonth()) cursor = new Date(day.getFullYear(), day.getMonth(), 1);
+            paint();
+          };
+        });
+        paintDetail();
+      };
+      const shift = (months) => {
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + months, 1);
+        paint();
+      };
+      root.querySelector('[data-cal="prev"]').onclick = () => shift(-1);
+      root.querySelector('[data-cal="next"]').onclick = () => shift(1);
+      root.querySelector('[data-cal="today"]').onclick = () => {
+        selected = todayISO();
+        cursor = new Date(parseDate(selected).getFullYear(), parseDate(selected).getMonth(), 1);
+        paint();
+      };
+      paint();
+    },
+  });
 }
 
 /** Barras: quantas tarefas abertas da pessoa em cada materia. */
@@ -737,6 +922,7 @@ function viewHome(view) {
     <section class="home-section">
       <div class="section-head">
         <div><h3>Sua semana</h3><p class="section-sub">Suas entregas e as aulas da turma nos próximos 7 dias.</p></div>
+        <button class="btn btn-sm" data-act="calendar">Calendário</button>
       </div>
       ${weekStrip(d)}
     </section>
@@ -794,6 +980,10 @@ function viewHome(view) {
   });
   view.querySelector('[data-act="my-tasks"]')?.addEventListener('click', () => showTasksOf(state.user.id));
   view.querySelector('[data-act="go-team"]').onclick = () => goTo('equipe');
+  view.querySelector('[data-act="calendar"]').onclick = () => openCalendar();
+  view.querySelectorAll('[data-cal-day]').forEach((el) => {
+    el.onclick = () => openCalendar(el.dataset.calDay);
+  });
 }
 
 /* ------------------------------------------------------------ materias */

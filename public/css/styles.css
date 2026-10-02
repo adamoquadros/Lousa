@@ -678,16 +678,24 @@ button.focus-card:hover {
   border-radius: var(--radius-cards); box-shadow: var(--shadow-subtle);
 }
 .day-col.today { box-shadow: var(--shadow-subtle), 0 0 0 2px var(--text); }
-.day-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-4); }
+.day-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--spacing-4);
+  margin: calc(var(--spacing-4) * -1); padding: var(--spacing-4);
+  border: 0; border-radius: var(--radius-buttons); background: transparent;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.day-head:hover { background: var(--selected); }
 .day-name { font-weight: var(--font-weight-semibold); }
 .day-date { font-family: var(--mono-font); font-size: var(--text-caption); color: var(--icon); }
 .day-load { height: 4px; border-radius: 2px; background: var(--surface-2); box-shadow: var(--shadow-subtle-2); overflow: hidden; }
 .day-load span { display: block; height: 100%; background: var(--text); }
 .day-count { font-size: var(--text-caption); font-family: var(--mono-font); color: var(--icon); }
 .day-col.busy .day-count { color: var(--text); }
+/* Ate duas linhas: nome de materia comprido ("Técnicas de avaliação") cabe. */
 .day-task, .day-class {
-  display: block; width: 100%; padding: var(--spacing-6) var(--spacing-8);
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  width: 100%; padding: var(--spacing-6) var(--spacing-8);
+  overflow: hidden; line-height: 1.35; overflow-wrap: anywhere;
   text-align: left; font: inherit; font-size: 13px; color: var(--text); cursor: pointer;
   border: 0; border-left: 3px solid var(--card-color, var(--text)); border-radius: var(--radius-buttons);
 }
@@ -722,8 +730,79 @@ button.focus-card:hover {
 .class-pulse span:not(.num) { font-size: var(--text-caption); color: var(--muted); }
 .side-link { margin-top: var(--spacing-12); padding-left: 0; }
 
+/* Calendario (modal): mes a esquerda, detalhes do dia a direita. */
+.modal.cal-modal { width: 920px; height: 680px; }
+.cal-body { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--spacing-24); }
+.cal-nav { display: flex; align-items: center; gap: var(--spacing-8); margin-bottom: var(--spacing-12); }
+.cal-nav .spacer { flex: 1; }
+.cal-month { min-width: 140px; text-align: center; font-size: var(--text-body); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--spacing-4); }
+.cal-weekday {
+  padding-bottom: var(--spacing-4); text-align: center;
+  font-family: var(--mono-font); font-size: var(--text-caption); text-transform: uppercase; color: var(--icon);
+}
+.cal-day {
+  position: relative; height: 68px; padding: var(--spacing-6);
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--spacing-4);
+  border: 1px solid var(--border); border-radius: var(--radius-buttons); background: var(--surface);
+  font: inherit; color: var(--text); text-align: left; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.cal-day:hover { background: var(--surface-2); border-color: var(--hairline); }
+.cal-day.outside { color: var(--icon); background: transparent; }
+.cal-day.today .cal-num { background: var(--cta-bg); color: var(--cta-text); }
+.cal-day.selected { border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
+.cal-num {
+  min-width: 22px; height: 22px; padding: 0 4px; border-radius: var(--radius-pills);
+  display: grid; place-items: center; font-size: 13px; font-weight: var(--font-weight-medium);
+}
+.cal-marks { display: flex; gap: 3px; flex-wrap: wrap; }
+.cal-class { display: inline-block; width: 14px; height: 4px; border-radius: 2px; background: var(--icon); }
+.cal-due {
+  position: absolute; right: var(--spacing-6); bottom: var(--spacing-6);
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pills);
+  display: inline-grid; place-items: center;
+  font-family: var(--mono-font); font-size: var(--text-caption); font-weight: var(--font-weight-medium);
+  background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-subtle-2);
+}
+.cal-due.mine { background: var(--cta-bg); color: var(--cta-text); box-shadow: none; }
+.cal-due.alert { background: var(--alert); color: #fff; box-shadow: none; }
+.cal-legend {
+  display: flex; flex-wrap: wrap; gap: var(--spacing-16); margin-top: var(--spacing-12);
+  font-size: var(--text-caption); color: var(--muted);
+}
+.cal-legend > span { display: inline-flex; align-items: center; gap: var(--spacing-6); }
+.cal-legend .cal-due { position: static; }
+
+.cal-detail { border-left: 1px solid var(--border); padding-left: var(--spacing-24); min-width: 0; }
+.cal-detail-head { margin-bottom: var(--spacing-16); display: flex; flex-direction: column; gap: 2px; }
+.cal-detail-section { margin-bottom: var(--spacing-20); }
+.cal-detail-section h5 {
+  margin: 0 0 var(--spacing-8); font-family: var(--mono-font); font-size: var(--text-caption);
+  font-weight: var(--font-weight-regular); text-transform: uppercase; letter-spacing: .06em; color: var(--icon);
+}
+.cal-detail-section .muted-text { margin: 0; font-size: 13px; }
+.cal-item {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; margin-bottom: var(--spacing-6);
+  padding: var(--spacing-8) var(--spacing-10);
+  border: 0; border-left: 3px solid var(--card-color, var(--text)); border-radius: var(--radius-buttons);
+  background: var(--surface-2); font: inherit; color: var(--text); text-align: left; cursor: pointer;
+}
+.cal-item:hover { background: color-mix(in srgb, var(--card-color, var(--text)) 12%, var(--surface)); }
+.cal-item > span { font-size: 13px; color: var(--muted); }
+.cal-item.done strong { text-decoration: line-through; color: var(--muted); }
+.cal-item-tags { display: flex; flex-wrap: wrap; gap: var(--spacing-4); margin-top: var(--spacing-4); }
+.cal-item-tags .pill { height: 22px; font-size: 12px; }
+
 @media (max-width: 1100px) {
   .week-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .modal.cal-modal { height: 88vh; }
+  .cal-body { grid-template-columns: minmax(0, 1fr); }
+  .cal-detail { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: var(--spacing-16); }
+  .cal-day { height: 52px; padding: var(--spacing-4); }
+  .cal-due { right: 3px; bottom: 3px; }
 }
 @media (max-width: 860px) {
   .home-top, .home-grid { grid-template-columns: minmax(0, 1fr); }
