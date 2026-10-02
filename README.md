@@ -112,7 +112,10 @@ Clicar no próprio nome, no canto superior direito, abre o menu da conta: **Edit
 ## Material e prompts de estudo
 
 Na aba **Resumos** de cada matéria ficam os anexos (PDFs e fotos de slides ou do quadro, até 4MB)
-e os botões que montam o prompt (Resumo para prova, para estudos, para apresentação, Slides).
+e a geração. O **Tipo de resumo** é uma lista suspensa com busca: resumo para prova, para estudos,
+revisão de véspera, fichamento, glossário, mapa mental, flashcards, questões de múltipla escolha,
+questões discursivas, roteiro de apresentação e slides. A busca acha qualquer palavra em qualquer
+parte do nome ou da descrição, sem ligar para acento ("prova" traz todos que falam em prova).
 
 - **Leitura automática:** ao anexar, o app lê o conteúdo. PDF com texto é lido direto, página por
   página e sem IA; foto e PDF escaneado são transcritos pelo Gemini (precisa de `GEMINI_API_KEY`;
@@ -125,9 +128,11 @@ e os botões que montam o prompt (Resumo para prova, para estudos, para apresent
   (fora do material) o que vier de fora.
 - O prompt usa só o que muda o conteúdo: nome da matéria, observações/ementa, avaliações em
   aberto e títulos dos resumos já feitos. Professor, sala, dias de aula e datas ficam de fora.
-- Com chave de IA, o botão gera e salva o resumo sozinho; sem chave (ou sem o direito
-  "Gerar resumos com IA"), abre o prompt pronto para copiar. Prompt longo não cabe no link
-  "Abrir no Claude": aí o caminho é **Copiar**.
+- Um medidor mostra quanto do material marcado cabe no prompt (~60 mil caracteres) antes de gerar.
+- Com chave de IA, **Gerar e salvar** gera e salva o resumo sozinho. **Ver prompt** (sempre
+  disponível) abre o prompt editável, com **Copiar** e **Abrir no Claude / ChatGPT / Gemini**:
+  o botão do chat copia o prompt e abre a conversa; se o prompt for curto, já chega preenchido
+  (o Gemini não aceita isso pelo link, então lá é só colar).
 
 ## Convites
 

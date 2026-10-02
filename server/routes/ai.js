@@ -2,31 +2,28 @@ import { Router } from 'express';
 import { get, run } from '../db.js';
 import { requireAuth, requirePermission } from '../auth.js';
 import { AiError, describe, generate, isEnabled } from '../ai.js';
-import { MAX_FOCUS_CHARS, PRESETS, buildPrompt, isPreset, presetTitle } from '../prompts.js';
+import { MAX_FOCUS_CHARS, MAX_MATERIAL_CHARS, PRESETS, buildPrompt, isPreset, presetTitle } from '../prompts.js';
 import { MAX_TOTAL_BYTES, kindOf } from '../attachments.js';
 import { getBlob } from '../storage.js';
 
 export const aiRouter = Router();
 aiRouter.use(requireAuth);
 
-/**
- * O link "Abrir no Claude" leva o prompt inteiro na URL; acima disso ele pode
- * nao abrir. Prompt maior: so pelo botao Copiar.
- */
-const MAX_LINK_CHARS = 6_000;
-
 /** Estado da IA + lista de presets, para a interface se montar sozinha. */
 aiRouter.get('/status', (_req, res) => {
   res.json({
     ...describe(),
     max_focus_chars: MAX_FOCUS_CHARS,
-    presets: Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label, hint: p.hint })),
+    max_material_chars: MAX_MATERIAL_CHARS,
+    presets: Object.entries(PRESETS).map(([id, p]) => ({
+      id, group: p.group, label: p.label, hint: p.hint, keywords: p.keywords,
+    })),
   });
 });
 
 /**
- * Prompt pronto, sem chamar IA nenhuma. E o que alimenta o botao "Copiar" e o
- * "Abrir no Claude" - funciona sem chave e sem custo. Ja vem com o texto lido
+ * Prompt pronto, sem chamar IA nenhuma. E o que alimenta a janela de copiar e
+ * abrir no Claude/ChatGPT/Gemini - funciona sem chave e sem custo. Ja vem com o texto lido
  * dos anexos escolhidos.
  */
 aiRouter.get('/subjects/:id/prompt', async (req, res) => {
@@ -43,9 +40,6 @@ aiRouter.get('/subjects/:id/prompt', async (req, res) => {
     prompt: built.prompt,
     chars: built.prompt.length,
     material,
-    claude_url: built.prompt.length <= MAX_LINK_CHARS
-      ? `https://claude.ai/new?q=${encodeURIComponent(built.prompt)}`
-      : null,
   });
 });
 

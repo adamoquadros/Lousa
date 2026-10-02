@@ -4,15 +4,22 @@
  * que injetamos aqui (professor, ementa, provas marcadas, resumos existentes).
  *
  * Nao depende de nenhum provedor. O mesmo texto serve para copiar e colar, para
- * abrir no claude.ai ou para mandar pela API do Gemini.
+ * abrir no Claude, ChatGPT ou Gemini e para mandar pela API do Gemini.
  */
 import { all, get } from './db.js';
 
-
+/**
+ * Tipos de resumo. A interface monta a lista suspensa com busca a partir daqui:
+ *  group: titulo do bloco na lista;
+ *  hint: descricao que aparece embaixo do nome (e entra na busca);
+ *  keywords: termos que nao aparecem na tela, so ajudam a busca ("anki", "quiz").
+ */
 export const PRESETS = {
   prova: {
+    group: 'Resumos',
     label: 'Resumo para prova',
-    hint: 'Foco no que costuma cair: conceitos, autores e autoavaliação.',
+    hint: 'Foco no que costuma cair na prova: conceitos, autores, pegadinhas e autoavaliação.',
+    keywords: 'avaliação exame teste',
     instruction: [
       'Gere um RESUMO PARA PROVA. Priorize o que tem cara de questão:',
       '- conceitos-chave, cada um com uma definição curta e precisa;',
@@ -23,8 +30,10 @@ export const PRESETS = {
     ].join('\n'),
   },
   estudos: {
+    group: 'Resumos',
     label: 'Resumo para estudos',
-    hint: 'Explicação didática, do zero, com exemplos.',
+    hint: 'Explicação didática, do zero, com exemplos do dia a dia.',
+    keywords: 'aprender entender explicação básico iniciante',
     instruction: [
       'Gere um RESUMO PARA ESTUDOS, para quem está aprendendo o conteúdo do zero.',
       'Explique cada ideia em linguagem simples antes de usar o termo técnico.',
@@ -33,9 +42,99 @@ export const PRESETS = {
       'Onde o material estiver incompleto ou confuso, diga isso explicitamente em vez de preencher com suposições.',
     ].join('\n'),
   },
+  revisao: {
+    group: 'Resumos',
+    label: 'Revisão de véspera',
+    hint: 'Uma página só com o essencial para revisar na véspera da prova.',
+    keywords: 'rápida rápido cola esquema última hora resumão',
+    instruction: [
+      'Gere uma REVISÃO DE VÉSPERA: o essencial do conteúdo em no máximo uma página.',
+      'Só tópicos curtos, agrupados por tema. Nada de explicação longa nem exemplo extenso.',
+      'Destaque em **negrito** os termos que a pessoa precisa reconhecer de cara.',
+      'Feche com uma lista "Não confunda" com os pares de conceitos mais fáceis de trocar.',
+    ].join('\n'),
+  },
+  fichamento: {
+    group: 'Resumos',
+    label: 'Fichamento de texto',
+    hint: 'Ficha de leitura de um texto ou artigo: tese, argumentos, citações e crítica.',
+    keywords: 'artigo leitura livro capítulo autor resenha',
+    instruction: [
+      'Gere um FICHAMENTO de cada texto ou artigo do material, com:',
+      '- referência (autor, título e ano, se aparecerem no material);',
+      '- tese central em uma ou duas frases;',
+      '- argumentos principais, na ordem em que o autor os apresenta;',
+      '- conceitos que o autor define, com a definição dele;',
+      '- até 5 citações curtas e marcantes, entre aspas, com a página;',
+      '- uma apreciação crítica curta: limites, pontos fortes e diálogo com outros autores da matéria.',
+    ].join('\n'),
+  },
+  glossario: {
+    group: 'Resumos',
+    label: 'Glossário',
+    hint: 'Termos técnicos da matéria em ordem alfabética, com definição curta.',
+    keywords: 'vocabulário termos definições dicionário conceitos',
+    instruction: [
+      'Gere um GLOSSÁRIO dos termos técnicos do material, em ordem alfabética.',
+      'Formato de cada item: **Termo** — definição em uma ou duas frases.',
+      'Quando o termo tiver um autor de referência no material, cite-o na definição.',
+      'Quando dois termos forem fáceis de confundir, aponte a diferença no item de cada um.',
+    ].join('\n'),
+  },
+  mapa: {
+    group: 'Resumos',
+    label: 'Mapa mental',
+    hint: 'Conteúdo em árvore de tópicos, do tema central aos detalhes.',
+    keywords: 'esquema estrutura diagrama hierarquia markmap xmind',
+    instruction: [
+      'Gere um MAPA MENTAL do conteúdo como lista Markdown aninhada.',
+      'O primeiro nível é o tema central da matéria; os níveis abaixo vão do geral ao específico.',
+      'Cada item tem no máximo 8 palavras. Use no máximo 4 níveis.',
+      'Não escreva parágrafos: o resultado deve poder ser colado direto em ferramentas como Markmap ou Xmind.',
+    ].join('\n'),
+  },
+  flashcards: {
+    group: 'Exercícios',
+    label: 'Flashcards',
+    hint: 'Cartões de pergunta e resposta para memorizar e revisar para a prova.',
+    keywords: 'anki memorização cartões repetição espaçada',
+    instruction: [
+      'Gere 30 FLASHCARDS a partir do material.',
+      'Cada cartão em duas linhas, separado do próximo por uma linha em branco:',
+      'P: pergunta curta e objetiva',
+      'R: resposta em no máximo duas frases',
+      'Um conceito por cartão. Varie o tipo: definição, exemplo, comparação, autor e ideia.',
+    ].join('\n'),
+  },
+  multipla: {
+    group: 'Exercícios',
+    label: 'Questões de múltipla escolha',
+    hint: 'Simulado no estilo de prova objetiva, com gabarito comentado.',
+    keywords: 'questão pergunta simulado quiz teste objetiva alternativas enade concurso exercícios',
+    instruction: [
+      'Gere um SIMULADO com 10 questões de múltipla escolha, alternativas de (a) a (e).',
+      'Misture níveis: 4 fáceis, 4 médias e 2 difíceis. Distratores plausíveis, sem alternativa absurda.',
+      'Não coloque o gabarito junto das questões. No fim, numa seção "Gabarito comentado",',
+      'dê a letra certa de cada questão e explique em uma ou duas frases por que ela está certa e as outras não.',
+    ].join('\n'),
+  },
+  discursivas: {
+    group: 'Exercícios',
+    label: 'Questões discursivas',
+    hint: 'Perguntas dissertativas como as de prova, com resposta modelo e critérios de correção.',
+    keywords: 'questão pergunta dissertativa aberta escrita exercícios',
+    instruction: [
+      'Gere 5 QUESTÕES DISCURSIVAS no estilo de prova de faculdade, do mais simples ao mais exigente.',
+      'Para cada questão, traga logo abaixo:',
+      '- uma resposta modelo de um parágrafo;',
+      '- os pontos que um professor esperaria ver na resposta, em tópicos.',
+    ].join('\n'),
+  },
   apresentacao: {
-    label: 'Resumo para apresentação',
-    hint: 'Roteiro de fala com tempo estimado.',
+    group: 'Apresentar',
+    label: 'Roteiro de apresentação',
+    hint: 'Roteiro de fala com tempo estimado e perguntas prováveis da plateia.',
+    keywords: 'seminário trabalho falar oral resumo',
     instruction: [
       'Gere um ROTEIRO DE APRESENTAÇÃO a partir do material.',
       'Estruture em blocos, cada um com: o que falar, o tempo estimado em minutos e um gancho de transição para o próximo.',
@@ -45,8 +144,10 @@ export const PRESETS = {
     ].join('\n'),
   },
   slides: {
+    group: 'Apresentar',
     label: 'Slides',
-    hint: 'Markdown de slides, uma ideia por slide.',
+    hint: 'Slides em Markdown, uma ideia por slide, com notas do apresentador.',
+    keywords: 'powerpoint apresentação seminário trabalho',
     instruction: [
       'Gere SLIDES em Markdown. Separe cada slide com uma linha contendo apenas ---',
       'Regras: um slide, uma ideia. Título curto. No máximo 5 tópicos por slide,',
